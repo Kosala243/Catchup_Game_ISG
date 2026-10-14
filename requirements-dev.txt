@@ -1,0 +1,4 @@
+# Only needed for experiments/tests, never imported by the shipped program.
+-r requirements.txt
+matplotlib>=3.8
+pytest>=8.0

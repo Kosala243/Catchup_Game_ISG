@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# autosaved/in-progress games and generated experiment output
+saves/*.json
+experiments/results/*.csv
+experiments/results/*.png
+
+.DS_Store
