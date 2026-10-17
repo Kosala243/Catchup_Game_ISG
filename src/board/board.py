@@ -1,12 +1,6 @@
-"""
-Board state: which stones sit where.
+"""A simple, validated board container for Catchup.
 
-SCAFFOLDING NOTE: placeholder state representation (a plain dict) so the rest
-of the project runs end-to-end. This is exactly the kind of "state-action
-representation" the assignment expects you to design yourself - replace it
-with whatever representation suits your search (e.g. flat arrays/bitboards for
-speed) and disclose in AI_USAGE.md if any of this scaffold survives into your
-submission.
+A dict-based reference representation suitable for Phase 1 correctness testing.
 """
 
 from typing import Dict, List, Optional
@@ -20,6 +14,8 @@ BLACK = "B"
 
 
 def other(colour: str) -> str:
+    if colour not in (WHITE, BLACK):
+        raise ValueError(f"invalid stone colour: {colour!r}")
     return BLACK if colour == WHITE else WHITE
 
 
@@ -28,30 +24,43 @@ class Board:
         self.cells: Dict[Cell, Optional[str]] = {c: EMPTY for c in coords.all_cells()}
 
     def copy(self) -> "Board":
-        b = Board()
-        b.cells = dict(self.cells)
-        return b
+        result = Board()
+        result.cells = dict(self.cells)
+        return result
 
     def place(self, cell: Cell, colour: str) -> None:
+        if cell not in self.cells:
+            raise ValueError(f"invalid Catchup cell: {cell!r}")
+        if colour not in (WHITE, BLACK):
+            raise ValueError(f"invalid stone colour: {colour!r}")
         if self.cells[cell] is not EMPTY:
             raise ValueError(f"cell {coords.to_notation(cell)} is already occupied")
         self.cells[cell] = colour
 
     def remove(self, cell: Cell) -> None:
-        """Used by undo: clears a cell back to empty."""
+        if cell not in self.cells:
+            raise ValueError(f"invalid Catchup cell: {cell!r}")
+        if self.cells[cell] is EMPTY:
+            raise ValueError(f"cell {coords.to_notation(cell)} is already empty")
         self.cells[cell] = EMPTY
 
     def is_empty(self, cell: Cell) -> bool:
+        if cell not in self.cells:
+            raise ValueError(f"invalid Catchup cell: {cell!r}")
         return self.cells[cell] is EMPTY
 
     def empty_cells(self) -> List[Cell]:
-        return [c for c, v in self.cells.items() if v is EMPTY]
+        return [c for c, value in self.cells.items() if value is EMPTY]
 
     def is_full(self) -> bool:
-        return all(v is not EMPTY for v in self.cells.values())
+        return all(value is not EMPTY for value in self.cells.values())
 
     def stones_of(self, colour: str) -> List[Cell]:
-        return [c for c, v in self.cells.items() if v == colour]
+        if colour not in (WHITE, BLACK):
+            raise ValueError(f"invalid stone colour: {colour!r}")
+        return [c for c, value in self.cells.items() if value == colour]
 
     def neighbours_of_colour(self, cell: Cell, colour: str) -> List[Cell]:
+        if colour not in (WHITE, BLACK):
+            raise ValueError(f"invalid stone colour: {colour!r}")
         return [n for n in coords.neighbours(cell) if self.cells[n] == colour]

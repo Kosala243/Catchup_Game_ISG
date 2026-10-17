@@ -1,32 +1,21 @@
-"""
-Hex-grid coordinate system for the Catchup board (Figure 2 of the assignment PDF).
+"""Coordinate helpers for the 61-cell Catchup hexagon (five cells per side).
 
-SCAFFOLDING NOTE: this module was drafted with AI assistance to get the project
-running end-to-end. Geometry/coordinate handling is a mechanical concern, but the
-assignment still treats "state-action representation" as something you must own -
-review this file, adapt it to however you actually want to represent state, and
-disclose it in AI_USAGE.md if you keep any of it as-is.
-
-Board layout: a hexagon with N=5 cells per side, 61 cells total, labelled with
-columns 'A'..'I' and rows 1..9 exactly as shown in Figure 2 of the rules PDF.
+The labels match Figure 2 of the official Catchup rules.
 """
 
 from typing import Iterator, Tuple
 
-N = 5                      # cells per side
-NUM_ROWS = 2 * N - 1       # 9
-NUM_COLS = 2 * N - 1       # 9
+N = 5
+NUM_ROWS = 2 * N - 1
+NUM_COLS = 2 * N - 1
 COL_LETTERS = "ABCDEFGHI"[:NUM_COLS]
 
-Cell = Tuple[int, int]     # (col, row), 0-indexed col, 1-indexed row
+Cell = Tuple[int, int]  # (column, row); column is 0-indexed, row is 1-indexed.
 
-# Six neighbour offsets (delta_col, delta_row) for this particular layout,
-# derived from the row-dependent column bounds below. See docs/design_notes.md.
 NEIGHBOUR_DELTAS = ((1, 1), (1, 0), (0, -1), (-1, -1), (-1, 0), (0, 1))
 
 
 def col_bounds(row: int) -> Tuple[int, int]:
-    """Inclusive (min_col, max_col) of valid columns for a given 1-indexed row."""
     if not (1 <= row <= NUM_ROWS):
         raise ValueError(f"row {row} out of range 1..{NUM_ROWS}")
     if row <= N:
@@ -43,31 +32,34 @@ def is_valid(cell: Cell) -> bool:
 
 
 def all_cells() -> Iterator[Cell]:
-    """Yield all 61 valid (col, row) cells on the board."""
     for row in range(1, NUM_ROWS + 1):
         lo, hi = col_bounds(row)
         for col in range(lo, hi + 1):
-            yield (col, row)
+            yield col, row
 
 
 def neighbours(cell: Cell) -> Iterator[Cell]:
+    if not is_valid(cell):
+        raise ValueError(f"invalid Catchup cell: {cell!r}")
     col, row = cell
     for dc, dr in NEIGHBOUR_DELTAS:
-        n = (col + dc, row + dr)
-        if is_valid(n):
-            yield n
+        neighbour = col + dc, row + dr
+        if is_valid(neighbour):
+            yield neighbour
 
 
 def to_notation(cell: Cell) -> str:
+    if not is_valid(cell):
+        raise ValueError(f"invalid Catchup cell: {cell!r}")
     col, row = cell
     return f"{COL_LETTERS[col]}{row}"
 
 
 def from_notation(text: str) -> Cell:
     text = text.strip().upper()
-    col = COL_LETTERS.index(text[0])
-    row = int(text[1:])
-    cell = (col, row)
+    if len(text) != 2 or text[0] not in COL_LETTERS or text[1] not in "123456789":
+        raise ValueError(f"'{text}' is not a valid Catchup cell label")
+    cell = COL_LETTERS.index(text[0]), int(text[1])
     if not is_valid(cell):
         raise ValueError(f"'{text}' is not a valid cell on this board")
     return cell
