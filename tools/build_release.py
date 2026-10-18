@@ -19,7 +19,11 @@ REQUIRED_FILES = (
     "src/modes/tournament_mode.py", "src/modes/self_play.py",
     "tools/check_environment.py", "tools/windows_smoke.py",
 )
-OPTIONAL_FILES = ("PHASE7_README.md", "docs/architecture.md")
+OPTIONAL_FILES = (
+    "PHASE7_README.md", "PHASE8_README.md", "docs/architecture.md",
+    "tools/build_release.py", "tools/final_validation.py",
+    "tools/build_native_windows.py",
+)
 MANIFEST = "SHA256SUMS.txt"
 
 
