@@ -13,8 +13,7 @@ import argparse
 from queue import Empty, Queue
 from threading import Event, Thread
 
-from experiments.catchup_diagnostics import EXPERIMENTS, run_experiment
-from experiments.phase6_common import build_position
+from experiments.lab import EXPERIMENTS, run_experiment, build_position
 from src.board.board import WHITE, BLACK
 from src.board.coordinates import all_cells, from_notation
 from src.gui.layout import hex_corners, hex_to_pixel
@@ -346,7 +345,7 @@ def run(*, seed: int = 33, empty_cells: int = 19, max_depth: int = 4,
         if report:
             font_line(f"Saved JSON: {report['saved_json']}", (29, 830), font=small, color=SUBTEXT, max_width=1200)
         else:
-            font_line("Note: Used same seed/empty/depth/time settings for all four comparisons.",
+            font_line("Tip: use the same seed/empty/depth/time settings for all four comparisons.",
                       (29, 830), font=small, color=SUBTEXT)
         # Preserve the design's aspect ratio, even after manual resize.
         # All content—including the footer below y=824—fits in the window.
