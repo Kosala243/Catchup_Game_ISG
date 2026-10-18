@@ -89,71 +89,76 @@ def ranked_candidate_turns(
     full_width: bool = False,
     deadline: Optional[float] = None,
 ) -> List[Turn]:
-    """Return ordered legal actions.
+    """Rank legal complete turns with bounded memory in selective mode.
 
-    With `full_width=True`, every action is included (for exact searches).
-    Otherwise search is selective: choose a local cell pool, rank complete
-    turns, and retain one action of each legal length if the branch cap allows.
-    A reduced action set is NOT guaranteed to contain the minimax best move.
+    Full-width mode still enumerates and orders every legal turn. In normal
+    mode, keep only the highest-ranked `max_branch` combinations in a heap,
+    plus the best action of each permitted length for tactical diversity.
+    This is still a SELECTIVE search (not guaranteed globally optimal).
     """
     check_deadline(deadline)
     if state.is_game_over():
         return []
     if max_branch < 1 or max_cells < 1:
         raise ValueError("max_branch and max_cells must be positive")
+
     scores = _cell_scores(state)
-    if full_width:
-        cell_pool = state.board.empty_cells()
-    else:
-        cell_pool = heapq.nlargest(max_cells, scores, key=scores.__getitem__)
-        # Combine priority cells with a few opponent-adjacent defensive cells.
-        # This pool remains bounded to control 3-stone combinatorics.
+    cell_pool = (
+        state.board.empty_cells() if full_width
+        else heapq.nlargest(max_cells, scores, key=scores.__getitem__)
+    )
     board_order = {cell: i for i, cell in enumerate(state.board.cells)}
-    cell_pool.sort(key=board_order.__getitem__)  # same canonical order as exhaustive generator
+    cell_pool.sort(key=board_order.__getitem__)
     max_length = min(state.stones_allowed_this_turn(), len(cell_pool))
     if max_length == 0:
         return []
 
-    candidates = []
-    iter_count = 0
+    # This is substantially cheaper than recomputing neighbour sets for
+    # every candidate inside the combinatorial loop.
+    adjacent = {cell: set(neighbours(cell)) for cell in cell_pool}
+    heap = []
+    all_choices = [] if full_width else None
+    best_by_length = {}
+    serial = 0
     for length in range(1, max_length + 1):
         for cells in combinations(cell_pool, length):
-            iter_count += 1
-            if iter_count % 128 == 0:
+            serial += 1
+            if serial % 128 == 0:
                 check_deadline(deadline)
-            quick = sum(scores[c] for c in cells)
-            # A useful tie-break: a multi-stone turn with adjacent placements
-            # can create a contiguous bridge rather than isolated stones.
+            quick = sum(scores[cell] for cell in cells)
             for i in range(len(cells)):
-                adjoining = set(neighbours(cells[i]))
-                quick += 2.0 * sum(c in adjoining for c in cells[i + 1:])
-            # Stable, deterministic ranking on equal scores.
-            candidates.append((quick, cells))
-    candidates.sort(key=lambda item: (-item[0], item[1]))
-    if full_width:
-        return [list(cells) for _, cells in candidates]
+                quick += 2.0 * sum(c in adjacent[cells[i]] for c in cells[i + 1:])
+            # -serial makes earlier board-ordered combinations win exact ties.
+            item = (quick, -serial, cells)
+            if full_width:
+                all_choices.append(item)
+            else:
+                if length not in best_by_length or item > best_by_length[length]:
+                    best_by_length[length] = item
+                if len(heap) < max_branch:
+                    heapq.heappush(heap, item)
+                elif item > heap[0]:
+                    heapq.heapreplace(heap, item)
 
-    selected: List[Tuple[Cell, ...]] = []
-    seen = set()
-    # Preserve action-size diversity when the branch cap allows it: placing
-    # fewer stones may avoid gifting an opponent a three-stone bonus.
+    if full_width:
+        # All actions included, sorted: exact search is possible.
+        all_choices.sort(reverse=True)
+        return [list(item[2]) for item in all_choices]
+
+    selected = []
+    selected_turns = set()
     for length in range(1, max_length + 1):
-        if len(selected) >= max_branch:
+        if len(selected) == max_branch:
             break
-        for _, cells in candidates:
-            if len(cells) == length:
-                if cells not in seen:
-                    selected.append(cells)
-                    seen.add(cells)
-                break
-    for _, cells in candidates:
-        if len(selected) >= max_branch:
+        item = best_by_length[length]
+        selected.append(item)
+        selected_turns.add(item[2])
+    for item in sorted(heap, reverse=True):
+        if len(selected) == max_branch:
             break
-        if cells not in seen:
-            selected.append(cells)
-            seen.add(cells)
-    # Sort final actions by their original quick score, not by selection stage.
-    quick_by_turn = {cells: quick for quick, cells in candidates}
-    selected.sort(key=lambda c: (-quick_by_turn[c], c))
+        if item[2] not in selected_turns:
+            selected.append(item)
+            selected_turns.add(item[2])
+    selected.sort(reverse=True)
     check_deadline(deadline)
-    return [list(cells) for cells in selected]
+    return [list(item[2]) for item in selected]
