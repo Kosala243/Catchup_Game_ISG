@@ -1,6 +1,6 @@
 {
   "record_type": "catchup-search-diagnostics-v1",
-  "timestamp_utc": "2026-10-18T16:59:45.979406+00:00",
+  "timestamp_utc": "2026-10-18T17:33:50.522699+00:00",
   "experiment": {
     "number": 3,
     "title": "Transposition table",
@@ -31,7 +31,7 @@
     "completed_depth": 4,
     "timed_out": false,
     "cancelled": false,
-    "elapsed_seconds": 0.519554,
+    "elapsed_seconds": 0.582931,
     "fallback_used": false
   },
   "iterations": [
@@ -40,7 +40,7 @@
       "evaluation": 26.903278688524637,
       "best_turn": "C3 D4 E7",
       "stones": 3,
-      "elapsed_seconds": 0.009698,
+      "elapsed_seconds": 0.009109,
       "tt_size": 1,
       "nodes": 13,
       "leaves": 12,
@@ -59,7 +59,7 @@
       "evaluation": -46.33770491803273,
       "best_turn": "F4 G5 E7",
       "stones": 3,
-      "elapsed_seconds": 0.052099,
+      "elapsed_seconds": 0.050392,
       "tt_size": 13,
       "nodes": 69,
       "leaves": 56,
@@ -78,7 +78,7 @@
       "evaluation": -24.896721311475403,
       "best_turn": "F4 G5 E7",
       "stones": 3,
-      "elapsed_seconds": 0.155801,
+      "elapsed_seconds": 0.157534,
       "tt_size": 58,
       "nodes": 238,
       "leaves": 180,
@@ -97,7 +97,7 @@
       "evaluation": -55.92131147540982,
       "best_turn": "F4 G5 E7",
       "stones": 3,
-      "elapsed_seconds": 0.301691,
+      "elapsed_seconds": 0.365618,
       "tt_size": 256,
       "nodes": 934,
       "leaves": 672,

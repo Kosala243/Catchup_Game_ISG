@@ -2,36 +2,17 @@
 
 # --- Board geometry, opening rules, groups, state, undo ---
 import json
-
-
 import random
-
-
 import pytest
-
-
 from src.board.board import BLACK, WHITE, Board
-
-
 from src.board.coordinates import (
     all_cells, col_bounds, from_notation, is_valid, neighbours, to_notation
 )
-
-
 from src.board.groups import group_sizes, largest_group_size
-
-
 from src.game.notation import format_turn, parse_turn
-
-
 from src.game.rules import compare_group_lists, max_stones_allowed
-
-
 from src.game.state import GameState
-
-
 from src.persistence.save_load import _state_to_dict, load_game, save_game
-
 
 def notation(*names):
     return [from_notation(name) for name in names]
@@ -737,7 +718,7 @@ def test_tournament_undo_exchange_both_colours():
 def test_cli_dispatch_gui_selfplay(monkeypatch):
     import main
     calls = []
-    monkeypatch.setattr(main.visual_self_play, "run", lambda **kw: calls.append(kw))
+    monkeypatch.setattr(main.self_play, "run", lambda **kw: calls.append(kw))
     monkeypatch.setattr(sys, "argv", ["main.py", "selfplay", "--gui", "--delay-ms", "75"])
     main.main()
     assert calls == [{"think_seconds": 600.0, "delay_ms": 75}]
