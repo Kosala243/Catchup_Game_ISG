@@ -1,7 +1,4 @@
-"""A simple, validated board container for Catchup.
-
-A dict-based reference representation suitable for Phase 1 correctness testing.
-"""
+"""Validated 61-cell Catchup board supporting copy, place and undo."""
 
 from typing import Dict, List, Optional
 
@@ -29,6 +26,8 @@ class Board:
         return result
 
     def place(self, cell: Cell, colour: str) -> None:
+        if not isinstance(cell, tuple) or len(cell) != 2:
+            raise ValueError(f"invalid Catchup cell: {cell!r}")
         if cell not in self.cells:
             raise ValueError(f"invalid Catchup cell: {cell!r}")
         if colour not in (WHITE, BLACK):
@@ -38,6 +37,8 @@ class Board:
         self.cells[cell] = colour
 
     def remove(self, cell: Cell) -> None:
+        if not isinstance(cell, tuple) or len(cell) != 2:
+            raise ValueError(f"invalid Catchup cell: {cell!r}")
         if cell not in self.cells:
             raise ValueError(f"invalid Catchup cell: {cell!r}")
         if self.cells[cell] is EMPTY:
@@ -45,6 +46,8 @@ class Board:
         self.cells[cell] = EMPTY
 
     def is_empty(self, cell: Cell) -> bool:
+        if not isinstance(cell, tuple) or len(cell) != 2:
+            raise ValueError(f"invalid Catchup cell: {cell!r}")
         if cell not in self.cells:
             raise ValueError(f"invalid Catchup cell: {cell!r}")
         return self.cells[cell] is EMPTY

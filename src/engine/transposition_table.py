@@ -17,7 +17,7 @@ CELL_BITS = {cell: 1 << i for i, cell in enumerate(all_cells())}
 
 # Occupancy, side to move, Catchup bonus-turn state, current scores,
 # search perspective and selective move generation settings all matter.
-PositionKey = Tuple[int, int, str, bool, bool, int, int, str, int, int, bool]
+PositionKey = Tuple[int, int, str, bool, bool, int, int, str, int, int, bool, int]
 
 
 def occupancy_bits(state: GameState) -> Tuple[int, int]:
@@ -42,12 +42,13 @@ def turn_mask(turn: Turn) -> int:
 def position_key(
     state: GameState, perspective: str, max_branch: int, max_cells: int,
     full_width: bool, masks: Optional[Tuple[int, int]] = None,
+    endgame_full_width_cells: int = 7,
 ) -> PositionKey:
     """Position identifier including the fields relevant to turn legality/search."""
     white, black = occupancy_bits(state) if masks is None else masks
     return (white, black, state.to_move, state.score_increased_last_turn,
             state.is_opening_move, state.scores[WHITE], state.scores[BLACK],
-            perspective, max_branch, max_cells, full_width)
+            perspective, max_branch, max_cells, full_width, endgame_full_width_cells)
 
 
 class Bound(Enum):

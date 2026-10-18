@@ -64,7 +64,10 @@ class GameState:
         if self.is_game_over():
             raise ValueError("the game is already over")
 
-        chosen = list(cells)
+        try:
+            chosen = list(cells)
+        except TypeError as error:
+            raise ValueError("turn must be an iterable of cell coordinates") from error
         colour = self.to_move
         max_allowed = self.stones_allowed_this_turn()
         if not (1 <= len(chosen) <= max_allowed):
@@ -79,6 +82,8 @@ class GameState:
 
         # Prevalidate *every* placement before adding history or placing stones.
         for cell in chosen:
+            if not isinstance(cell, tuple) or len(cell) != 2:
+                raise ValueError(f"invalid Catchup cell: {cell!r}")
             if cell not in self.board.cells:
                 raise ValueError(f"invalid Catchup cell: {cell!r}")
             if not self.board.is_empty(cell):

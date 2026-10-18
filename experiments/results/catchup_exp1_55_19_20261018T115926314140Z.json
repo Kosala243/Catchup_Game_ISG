@@ -1,0 +1,123 @@
+{
+  "record_type": "catchup-search-diagnostics-v1",
+  "timestamp_utc": "2026-10-18T11:59:26.313944+00:00",
+  "experiment": {
+    "number": 1,
+    "title": "Baseline",
+    "use_tt": false,
+    "use_ordering": false,
+    "configuration": "baseline"
+  },
+  "position": {
+    "seed": 55,
+    "empty_cells": 19,
+    "to_move": "W",
+    "white_score": 13,
+    "black_score": 8,
+    "previous_turn_increased_score": true,
+    "opening_move": false,
+    "history_length": 18
+  },
+  "parameters": {
+    "max_depth": 4,
+    "budget_seconds": 4.0,
+    "max_branch": 12,
+    "max_cells": 14,
+    "tt_preview_limit": 25
+  },
+  "result": {
+    "best_turn": "E5 H9",
+    "evaluation": 62.0,
+    "completed_depth": 4,
+    "timed_out": false,
+    "cancelled": false,
+    "elapsed_seconds": 0.765857,
+    "fallback_used": false
+  },
+  "iterations": [
+    {
+      "depth": 1,
+      "evaluation": 143.7,
+      "best_turn": "E5 G7",
+      "stones": 2,
+      "elapsed_seconds": 0.014382,
+      "tt_size": 0,
+      "nodes": 13,
+      "leaves": 12,
+      "cutoffs": 0,
+      "searched_moves": 12,
+      "completed_depth": 1,
+      "timed_out": false,
+      "tt_hits": 0,
+      "tt_cutoffs": 0,
+      "tt_stores": 0,
+      "generated_moves": 12
+    },
+    {
+      "depth": 2,
+      "evaluation": 39.19999999999999,
+      "best_turn": "E5 G7",
+      "stones": 2,
+      "elapsed_seconds": 0.039091,
+      "tt_size": 0,
+      "nodes": 47,
+      "leaves": 34,
+      "cutoffs": 10,
+      "searched_moves": 46,
+      "completed_depth": 2,
+      "timed_out": false,
+      "tt_hits": 0,
+      "tt_cutoffs": 0,
+      "tt_stores": 0,
+      "generated_moves": 156
+    },
+    {
+      "depth": 3,
+      "evaluation": 106.14999999999998,
+      "best_turn": "E5 H9",
+      "stones": 2,
+      "elapsed_seconds": 0.095851,
+      "tt_size": 0,
+      "nodes": 246,
+      "leaves": 197,
+      "cutoffs": 32,
+      "searched_moves": 245,
+      "completed_depth": 3,
+      "timed_out": false,
+      "tt_hits": 0,
+      "tt_cutoffs": 0,
+      "tt_stores": 0,
+      "generated_moves": 588
+    },
+    {
+      "depth": 4,
+      "evaluation": 62.0,
+      "best_turn": "E5 H9",
+      "stones": 2,
+      "elapsed_seconds": 0.616289,
+      "tt_size": 0,
+      "nodes": 1695,
+      "leaves": 1309,
+      "cutoffs": 285,
+      "searched_moves": 1694,
+      "completed_depth": 4,
+      "timed_out": false,
+      "tt_hits": 0,
+      "tt_cutoffs": 0,
+      "tt_stores": 0,
+      "generated_moves": 4632
+    }
+  ],
+  "tt_summary": {
+    "size": 0,
+    "exact": 0,
+    "lower": 0,
+    "upper": 0,
+    "capacity": 0
+  },
+  "tt_preview": [],
+  "root_key": {
+    "white_mask": "0x003c189815dc8124",
+    "black_mask": "0x17820703202264c9"
+  }
+}

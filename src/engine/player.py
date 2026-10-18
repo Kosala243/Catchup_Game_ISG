@@ -5,6 +5,8 @@ from typing import Optional
 from ..board.board import BLACK, WHITE
 from ..game.state import GameState, Turn
 from . import search
+from .move_ordering import MoveOrdering
+from .transposition_table import TranspositionTable
 from .time_manager import Clock, allocate_time
 
 
@@ -17,6 +19,9 @@ class AIPlayer:
             raise ValueError("AI colour must be W or B")
         self.colour = colour
         self.clock = Clock(total_seconds, remaining_seconds=remaining_seconds)
+        # Separate, bounded search caches per AI/colour and game.
+        self._table = TranspositionTable(max_entries=50_000)
+        self._ordering = MoveOrdering()
 
     def move_budget(
         self, state: GameState, estimated_moves_left: Optional[int] = None,
@@ -41,6 +46,7 @@ class AIPlayer:
         budget = self.move_budget(state, estimated_moves_left)
         self.clock.start_move()
         try:
-            return search.choose_move(state, budget)
+            with search.shared_search_cache(self._table, self._ordering):
+                return search.choose_move(state, budget)
         finally:
             self.clock.stop_move()

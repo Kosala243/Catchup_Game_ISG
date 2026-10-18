@@ -20,7 +20,42 @@ from src.board.coordinates import all_cells, from_notation
 from src.gui.layout import hex_corners, hex_to_pixel
 from src.engine.transposition_table import CELL_BITS
 
-W, H = 1280, 865
+W, H = 1280, 865  # Virtual canvas: all existing layout coordinates stay unchanged.
+
+
+def initial_window_size(desktop_size: tuple[int, int]) -> tuple[int, int]:
+    """Fit under the macOS/Windows menu bars and Dock/taskbar.
+
+    Desktop dimensions reported by pygame are logical window coordinates.
+    Allow vertical clearance for window decorations and a visible Dock.
+    """
+    dw, dh = desktop_size
+    if dw <= 0 or dh <= 0:
+        raise ValueError("desktop dimensions must be positive")
+    return min(W, max(1, dw - 80)), min(H, max(1, dh - 160))
+
+
+def fit_viewport(window_size: tuple[int, int]) -> tuple[int, int, int, int]:
+    """Return the letterboxed virtual-canvas rect within a real window."""
+    dw, dh = window_size
+    if dw <= 0 or dh <= 0:
+        raise ValueError("window dimensions must be positive")
+    ratio = min(dw / W, dh / H)
+    scaled_w = max(1, min(dw, round(W * ratio)))
+    scaled_h = max(1, min(dh, round(H * ratio)))
+    return (dw - scaled_w) // 2, (dh - scaled_h) // 2, scaled_w, scaled_h
+
+
+def mouse_to_canvas(point: tuple[int, int],
+                    window_size: tuple[int, int]) -> tuple[int, int] | None:
+    """Translate actual mouse clicks back to the 1280x865 layout."""
+    left, top, width, height = fit_viewport(window_size)
+    x, y = point
+    if not (left <= x < left + width and top <= y < top + height):
+        return None  # Ignore clicks in letterbox margins.
+    return int((x - left) * W / width), int((y - top) * H / height)
+
+
 BG = (16, 24, 37)
 PANEL = (27, 40, 56)
 BORDER = (57, 73, 91)
@@ -39,7 +74,12 @@ def run(*, seed: int = 33, empty_cells: int = 19, max_depth: int = 4,
         raise SystemExit("Pygame required: python3 -m pip install -r requirements.txt") from error
 
     pygame.init()
-    window = pygame.display.set_mode((W, H))
+    desktop = pygame.display.get_desktop_sizes()[0]
+    actual_size = initial_window_size(desktop)
+    display = pygame.display.set_mode(actual_size, pygame.RESIZABLE)
+    # Draw everything at its original 1280x865 coordinates, then scale once.
+    # This keeps fonts, board geometry, button locations, and spacing in sync.
+    window = pygame.Surface((W, H)).convert()
     pygame.display.set_caption("Catchup | Search experiment dashboard")
     clock = pygame.time.Clock()
     normal = pygame.font.SysFont("consolas", 16)
@@ -144,6 +184,12 @@ def run(*, seed: int = 33, empty_cells: int = 19, max_depth: int = 4,
             if event.type == pygame.QUIT:
                 cancel.set()
                 stop = True
+            elif event.type == pygame.VIDEORESIZE:
+                # pygame 2 supports resizing; render scale and hit-testing are
+                # recomputed from the new window size on the next frame.
+                display = pygame.display.set_mode(
+                    (max(1, event.w), max(1, event.h)), pygame.RESIZABLE
+                )
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     cancel.set()
@@ -156,7 +202,9 @@ def run(*, seed: int = 33, empty_cells: int = 19, max_depth: int = 4,
             elif event.type == pygame.MOUSEWHEEL:
                 tt_page = max(0, tt_page - event.y)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                pt = event.pos
+                pt = mouse_to_canvas(event.pos, display.get_size())
+                if pt is None:
+                    continue
                 if not busy:
                     for i, rect in enumerate(controls()):
                         if rect.collidepoint(pt):
@@ -181,9 +229,11 @@ def run(*, seed: int = 33, empty_cells: int = 19, max_depth: int = 4,
                 if pygame.Rect(1090, 245, 163, 32).collidepoint(pt) and busy:
                     cancel.set()
                     status = "Cancel requested. Current iteration finishes or times out."
-                if pygame.Rect(20, 525, 915, 280).collidepoint(pt):
-                    index = tt_page * 9 + int((pt[1] - 560) / 27)
-                    if pt[1] >= 560 and 0 <= index < len(current_tt()):
+                # Data rows render at 583 + 24*i. Map clicks to those rows,
+                # not to the 27-pixel approximation used by the old UI.
+                if 30 <= pt[0] < 925 and 580 <= pt[1] < 796:
+                    index = tt_page * 9 + (pt[1] - 580) // 24
+                    if 0 <= index < len(current_tt()):
                         selected_tt_row = index
 
         window.fill(BG)
@@ -296,8 +346,14 @@ def run(*, seed: int = 33, empty_cells: int = 19, max_depth: int = 4,
         if report:
             font_line(f"Saved JSON: {report['saved_json']}", (29, 830), font=small, color=SUBTEXT, max_width=1200)
         else:
-            font_line("Tip: use the same seed/empty/depth/time settings for all four comparisons.",
+            font_line("Note: Used same seed/empty/depth/time settings for all four comparisons.",
                       (29, 830), font=small, color=SUBTEXT)
+        # Preserve the design's aspect ratio, even after manual resize.
+        # All content—including the footer below y=824—fits in the window.
+        display.fill(BG)
+        left, top, scaled_w, scaled_h = fit_viewport(display.get_size())
+        fitted = pygame.transform.smoothscale(window, (scaled_w, scaled_h))
+        display.blit(fitted, (left, top))
         pygame.display.flip()
         clock.tick(30)
     pygame.quit()

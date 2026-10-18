@@ -38,14 +38,21 @@ def all_cells() -> Iterator[Cell]:
             yield col, row
 
 
+# Cell geometry is immutable, so adjacent cells are precomputed exactly once.
+# Return an iterator rather than the cached tuple to keep existing callers' API.
+_NEIGHBOUR_MAP = {
+    cell: tuple(
+        adjacent for dc, dr in NEIGHBOUR_DELTAS
+        if is_valid(adjacent := (cell[0] + dc, cell[1] + dr))
+    )
+    for cell in all_cells()
+}
+
+
 def neighbours(cell: Cell) -> Iterator[Cell]:
     if not is_valid(cell):
         raise ValueError(f"invalid Catchup cell: {cell!r}")
-    col, row = cell
-    for dc, dr in NEIGHBOUR_DELTAS:
-        neighbour = col + dc, row + dr
-        if is_valid(neighbour):
-            yield neighbour
+    return iter(_NEIGHBOUR_MAP[cell])
 
 
 def to_notation(cell: Cell) -> str:

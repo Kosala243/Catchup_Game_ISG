@@ -1,47 +1,59 @@
-"""
-Connected-group sizes (flood fill).
+"""Connected groups of same-colour stones on the 61-cell Catchup board.
 
-SCAFFOLDING NOTE: this recomputes groups from scratch with a BFS every call,
-which is fine for a placeholder but far too slow to call at every search node.
-A real engine typically tracks group sizes incrementally (e.g. union-find
-updated on each placement) - that is left for you to design and implement.
+Each group traversal visits its occupied cells once. This avoids invoking a
+separate full group search for each stone when computing all group sizes.
 """
-
 from collections import deque
 from typing import List
 
 from .board import Board
-from .coordinates import Cell
+from .coordinates import Cell, neighbours
 
 
 def group_containing(board: Board, cell: Cell) -> List[Cell]:
+    """Return all stones connected to ``cell`` (or [] for an empty cell).
+
+    This preserves the established API: passing an invalid cell raises
+    KeyError; valid empty cells yield an empty group.
+    """
     colour = board.cells[cell]
     if colour is None:
         return []
-    seen = {cell}
-    queue = deque([cell])
-    while queue:
-        current = queue.popleft()
-        for n in board.neighbours_of_colour(current, colour):
-            if n not in seen:
-                seen.add(n)
-                queue.append(n)
-    return list(seen)
+
+    group = {cell}
+    pending = deque((cell,))
+    while pending:
+        for adjacent in neighbours(pending.popleft()):
+            if adjacent not in group and board.cells[adjacent] == colour:
+                group.add(adjacent)
+                pending.append(adjacent)
+    return list(group)
 
 
 def group_sizes(board: Board, colour: str) -> List[int]:
-    """All group sizes for `colour`, largest first."""
-    visited = set()
-    sizes = []
-    for cell in board.stones_of(colour):
-        if cell in visited:
-            continue
-        group = group_containing(board, cell)
-        visited.update(group)
-        sizes.append(len(group))
-    return sorted(sizes, reverse=True)
+    """Compute every connected-component size once, largest first."""
+    # stones_of validates the colour, preserving Board's error behaviour.
+    stones = board.stones_of(colour)
+    remaining = set(stones)
+    sizes: List[int] = []
+
+    while remaining:
+        root = remaining.pop()
+        pending = [root]
+        size = 0
+        while pending:
+            cell = pending.pop()
+            size += 1
+            for adjacent in neighbours(cell):
+                if adjacent in remaining:
+                    remaining.remove(adjacent)
+                    pending.append(adjacent)
+        sizes.append(size)
+    sizes.sort(reverse=True)
+    return sizes
 
 
 def largest_group_size(board: Board, colour: str) -> int:
+    """The size of the largest group; zero when ``colour`` has no stones."""
     sizes = group_sizes(board, colour)
     return sizes[0] if sizes else 0

@@ -1,0 +1,123 @@
+{
+  "record_type": "catchup-search-diagnostics-v1",
+  "timestamp_utc": "2026-10-18T12:43:12.870387+00:00",
+  "experiment": {
+    "number": 2,
+    "title": "Move ordering",
+    "use_tt": false,
+    "use_ordering": true,
+    "configuration": "ordering_only"
+  },
+  "position": {
+    "seed": 33,
+    "empty_cells": 19,
+    "to_move": "W",
+    "white_score": 7,
+    "black_score": 10,
+    "previous_turn_increased_score": true,
+    "opening_move": false,
+    "history_length": 18
+  },
+  "parameters": {
+    "max_depth": 4,
+    "budget_seconds": 4.0,
+    "max_branch": 12,
+    "max_cells": 14,
+    "tt_preview_limit": 25
+  },
+  "result": {
+    "best_turn": "C3 F4 E7",
+    "evaluation": -54.19999999999999,
+    "completed_depth": 4,
+    "timed_out": false,
+    "cancelled": false,
+    "elapsed_seconds": 0.354909,
+    "fallback_used": false
+  },
+  "iterations": [
+    {
+      "depth": 1,
+      "evaluation": 33.599999999999994,
+      "best_turn": "C3 C5 E7",
+      "stones": 3,
+      "elapsed_seconds": 0.009786,
+      "tt_size": 0,
+      "nodes": 13,
+      "leaves": 12,
+      "cutoffs": 0,
+      "searched_moves": 12,
+      "completed_depth": 1,
+      "timed_out": false,
+      "tt_hits": 0,
+      "tt_cutoffs": 0,
+      "tt_stores": 0,
+      "generated_moves": 12
+    },
+    {
+      "depth": 2,
+      "evaluation": -41.89999999999998,
+      "best_turn": "C3 C5 E7",
+      "stones": 3,
+      "elapsed_seconds": 0.03368,
+      "tt_size": 0,
+      "nodes": 65,
+      "leaves": 52,
+      "cutoffs": 10,
+      "searched_moves": 64,
+      "completed_depth": 2,
+      "timed_out": false,
+      "tt_hits": 0,
+      "tt_cutoffs": 0,
+      "tt_stores": 0,
+      "generated_moves": 156
+    },
+    {
+      "depth": 3,
+      "evaluation": -18.900000000000006,
+      "best_turn": "E7",
+      "stones": 1,
+      "elapsed_seconds": 0.097692,
+      "tt_size": 0,
+      "nodes": 452,
+      "leaves": 373,
+      "cutoffs": 50,
+      "searched_moves": 451,
+      "completed_depth": 3,
+      "timed_out": false,
+      "tt_hits": 0,
+      "tt_cutoffs": 0,
+      "tt_stores": 0,
+      "generated_moves": 948
+    },
+    {
+      "depth": 4,
+      "evaluation": -54.19999999999999,
+      "best_turn": "C3 F4 E7",
+      "stones": 3,
+      "elapsed_seconds": 0.213411,
+      "tt_size": 0,
+      "nodes": 1608,
+      "leaves": 1182,
+      "cutoffs": 324,
+      "searched_moves": 1607,
+      "completed_depth": 4,
+      "timed_out": false,
+      "tt_hits": 0,
+      "tt_cutoffs": 0,
+      "tt_stores": 0,
+      "generated_moves": 5112
+    }
+  ],
+  "tt_summary": {
+    "size": 0,
+    "exact": 0,
+    "lower": 0,
+    "upper": 0,
+    "capacity": 0
+  },
+  "tt_preview": [],
+  "root_key": {
+    "white_mask": "0x0085d83e0400da28",
+    "black_mask": "0x157a03c0295c0412"
+  }
+}

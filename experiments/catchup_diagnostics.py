@@ -72,7 +72,7 @@ def _tt_sample(table: Optional[TranspositionTable], limit: int) -> tuple[list[di
     )) if limit else []
     sample = []
     for _, (key, entry) in ranked[:limit]:
-        white_mask, black_mask, mover, bonus, opening, white_score, black_score, perspective, branch, cells, full = key
+        white_mask, black_mask, mover, bonus, opening, white_score, black_score, perspective, branch, cells, full = key[:11]
         sample.append({
             "depth": entry.depth, "bound": entry.bound.value,
             "value": entry.value,

@@ -1,36 +1,35 @@
-"""
-Catchup turn/scoring rules (KEN4123 assignment PDF).
+"""Pure Catchup turn-limit and terminal group-comparison rules.
 
-SCAFFOLDING NOTE: encodes the rules as given; double check every clause
-against the rules PDF yourself before relying on it, and treat this as a
-first draft you own, not a finished, verified implementation.
+The compulsory single-stone White opening is handled by GameState.
 """
-
+from itertools import zip_longest
 from typing import List
 
 
-def max_stones_allowed(mover_score: int, opponent_score: int, opponent_score_increased: bool) -> int:
+def max_stones_allowed(
+    mover_score: int,
+    opponent_score: int,
+    opponent_score_increased: bool,
+) -> int:
+    """Return 3 only when the previous turn earned the opponent's bonus.
+
+    On every non-opening turn the mover may place one or two stones, or up to
+    three when the previous mover grew their largest group and the new score
+    is at least the current mover's score.
     """
-    Highest number of stones the player to move may place this turn.
-    They may always choose to place fewer (down to 1), except White's
-    opening placement, which is handled separately in GameState (exactly 1).
-    """
-    if opponent_score_increased and opponent_score >= mover_score:
-        return 3
-    return 2
+    return 3 if opponent_score_increased and opponent_score >= mover_score else 2
 
 
 def compare_group_lists(a_groups: List[int], b_groups: List[int]) -> int:
-    """
-    Rule 3/4 tie-break: compare sorted (desc) group-size lists position by
-    position; first difference decides. Returns 1 if `a` wins, -1 if `b`
-    wins, 0 for a full draw.
+    """Compare entire group-size multisets, descending, as Catchup requires.
+
+    Every tied group participates, including repeated groups of the same size.
+    Missing groups are compared as zero. Returns 1, -1, or 0.
+    No board or score state is mutated.
     """
     a = sorted(a_groups, reverse=True)
     b = sorted(b_groups, reverse=True)
-    for i in range(max(len(a), len(b))):
-        av = a[i] if i < len(a) else 0
-        bv = b[i] if i < len(b) else 0
-        if av != bv:
-            return 1 if av > bv else -1
+    for a_size, b_size in zip_longest(a, b, fillvalue=0):
+        if a_size != b_size:
+            return 1 if a_size > b_size else -1
     return 0
