@@ -1,5 +1,4 @@
-# Runtime dependencies only - must match what's pre-installed on the
-# tournament machines (Python 3.10.7, pygame, numpy). Pin exact versions
-# once you've settled on a dev environment: `pip freeze | grep -E "pygame|numpy"`.
-pygame>=2.5
-numpy>=1.26
+# Only one third-party package is imported by the runtime: pygame.
+# The Windows 11 assessment computer is specified to have pygame preinstalled.
+# Do not run pip on an offline assessment machine.
+pygame
