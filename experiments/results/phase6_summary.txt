@@ -1,0 +1,19 @@
+Catchup Phase 6 — measured results
+=================================
+
+Search benchmark: 60 measurements
+  baseline           mean 0.0803s; 245.0 nodes; 0 evaluation disagreements
+  ordering_only      mean 0.0811s; 244.3 nodes; 0 evaluation disagreements
+  tt_and_ordering    mean 0.0807s; 244.3 nodes; 0 evaluation disagreements
+  tt_only            mean 0.0815s; 245.0 nodes; 0 evaluation disagreements
+  Note: times and node counts depend on the tested positions/depth/hardware.
+
+Paired games: 20 games (10 pairs)
+  baseline           wins 11, draws 0, losses 9, wins as White 7
+  tt_and_ordering    wins 9, draws 0, losses 11, wins as White 6
+  Forfeit/error games: 0
+  Important: small paired samples are not a statistically reliable win rate.
+
+Recorded AI decisions: 469
+  baseline           avg completed depth 3.77, mean move time 0.4118s
+  tt_and_ordering    avg completed depth 3.97, mean move time 0.2667s
