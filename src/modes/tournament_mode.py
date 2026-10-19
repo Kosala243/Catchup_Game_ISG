@@ -1,8 +1,5 @@
-"""Terminal tournament relay with recoverable clock and corrected undo handling.
+"""Terminal tournament with recoverable clock and corrected undo handling."""
 
-The operator only records opponent moves. 'undo' reverses the *previous
-opponent entry and the AI response* (not just the latest AI move).
-"""
 from ..board.board import WHITE, BLACK
 from ..engine.player import AIPlayer
 from ..game.notation import format_turn, parse_turn
@@ -10,7 +7,6 @@ from ..game.state import GameState
 from ..persistence.save_load import load_tournament_session, save_tournament_session
 
 AUTOSAVE_PATH = "saves/current_game.json"
-
 
 def undo_last_exchange(state: GameState, my_colour: str) -> bool:
     """Undo the last opponent move plus its AI response, if available."""
@@ -21,7 +17,6 @@ def undo_last_exchange(state: GameState, my_colour: str) -> bool:
     state.undo()
     state.undo()
     return True
-
 
 def run(my_colour: str, think_seconds: float = 600.0, resume: bool = False) -> None:
     if my_colour not in (WHITE, BLACK):

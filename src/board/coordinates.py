@@ -1,7 +1,4 @@
-"""Coordinate helpers for the 61-cell Catchup hexagon (five cells per side).
-
-The labels match Figure 2 of the official Catchup rules.
-"""
+"""Coordinate helpers for the 61-cell Catchup hexagon (five cells per side)."""
 
 from typing import Iterator, Tuple
 
@@ -10,10 +7,9 @@ NUM_ROWS = 2 * N - 1
 NUM_COLS = 2 * N - 1
 COL_LETTERS = "ABCDEFGHI"[:NUM_COLS]
 
-Cell = Tuple[int, int]  # (column, row); column is 0-indexed, row is 1-indexed.
+Cell = Tuple[int, int]
 
 NEIGHBOUR_DELTAS = ((1, 1), (1, 0), (0, -1), (-1, -1), (-1, 0), (0, 1))
-
 
 def col_bounds(row: int) -> Tuple[int, int]:
     if not (1 <= row <= NUM_ROWS):
@@ -22,7 +18,6 @@ def col_bounds(row: int) -> Tuple[int, int]:
         return 0, row + N - 2
     return row - N, NUM_COLS - 1
 
-
 def is_valid(cell: Cell) -> bool:
     col, row = cell
     if not (1 <= row <= NUM_ROWS):
@@ -30,16 +25,13 @@ def is_valid(cell: Cell) -> bool:
     lo, hi = col_bounds(row)
     return lo <= col <= hi
 
-
 def all_cells() -> Iterator[Cell]:
     for row in range(1, NUM_ROWS + 1):
         lo, hi = col_bounds(row)
         for col in range(lo, hi + 1):
             yield col, row
 
-
-# Cell geometry is immutable, so adjacent cells are precomputed exactly once.
-# Return an iterator rather than the cached tuple to keep existing callers' API.
+# Ajacent cells are precomputed exactly once.
 _NEIGHBOUR_MAP = {
     cell: tuple(
         adjacent for dc, dr in NEIGHBOUR_DELTAS
@@ -48,19 +40,16 @@ _NEIGHBOUR_MAP = {
     for cell in all_cells()
 }
 
-
 def neighbours(cell: Cell) -> Iterator[Cell]:
     if not is_valid(cell):
         raise ValueError(f"invalid Catchup cell: {cell!r}")
     return iter(_NEIGHBOUR_MAP[cell])
-
 
 def to_notation(cell: Cell) -> str:
     if not is_valid(cell):
         raise ValueError(f"invalid Catchup cell: {cell!r}")
     col, row = cell
     return f"{COL_LETTERS[col]}{row}"
-
 
 def from_notation(text: str) -> Cell:
     text = text.strip().upper()

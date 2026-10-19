@@ -1,4 +1,4 @@
-"""Catchup game state with atomic turn validation, copy, and undo."""
+"""Catchup game state with turn validation, copy, and undo."""
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional
@@ -10,14 +10,12 @@ from ..board.groups import group_sizes, largest_group_size
 
 Turn = List[Cell]
 
-
 @dataclass
 class HistoryEntry:
     player: str
     cells: Turn
     scores_before: Dict[str, int]
     opponent_score_increased_before: bool
-
 
 class GameState:
     def __init__(self) -> None:
@@ -29,7 +27,6 @@ class GameState:
         self.history: List[HistoryEntry] = []
 
     def copy(self) -> "GameState":
-        """Independent copy, including undo history (no shared mutable lists/dicts)."""
         result = GameState()
         result.board = self.board.copy()
         result.scores = dict(self.scores)
@@ -60,7 +57,6 @@ class GameState:
         return self.board.empty_cells()
 
     def apply_turn(self, cells: Turn) -> None:
-        """Apply a complete turn or reject it without changing any state."""
         if self.is_game_over():
             raise ValueError("the game is already over")
 
@@ -80,7 +76,6 @@ class GameState:
         except TypeError as error:
             raise ValueError("turn cells must be hashable coordinate pairs") from error
 
-        # Prevalidate *every* placement before adding history or placing stones.
         for cell in chosen:
             if not isinstance(cell, tuple) or len(cell) != 2:
                 raise ValueError(f"invalid Catchup cell: {cell!r}")
@@ -121,7 +116,6 @@ class GameState:
         return self.board.is_full()
 
     def winner(self) -> Optional[str]:
-        """Winner at a terminal state: W, B, or None for a draw."""
         if not self.is_game_over():
             raise ValueError("winner is defined only when the board is full")
         result = rules.compare_group_lists(

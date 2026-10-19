@@ -1,10 +1,3 @@
-"""Exhaustive legal turns and fast, tactical *selective* turn ranking.
-
-A Catchup turn is one unordered combination of 1-3 empty cells. Selection
-never changes legality. Candidate ranking uses prospective group connections,
-not simply the sum of independent stone values. It is not a game-theoretic
-proof that excluded turns are inferior.
-"""
 from itertools import combinations
 import heapq
 import time
@@ -14,15 +7,12 @@ from ..board.board import other
 from ..board.coordinates import Cell, neighbours
 from ..game.state import GameState, Turn
 
-
 class SearchTimeout(Exception):
     """Stop an unfinished iteration; search must restore its state."""
-
 
 def check_deadline(deadline: Optional[float]) -> None:
     if deadline is not None and time.monotonic() >= deadline:
         raise SearchTimeout()
-
 
 def legal_turns(state: GameState) -> Iterator[Turn]:
     if state.is_game_over():
@@ -32,9 +22,7 @@ def legal_turns(state: GameState) -> Iterator[Turn]:
         for cells in combinations(empties, size):
             yield list(cells)
 
-
 def _component_map(state: GameState, colour: str) -> Tuple[Dict[Cell, int], List[int]]:
-    """Map occupied cells to component ids and component sizes."""
     board = state.board
     mapping: Dict[Cell, int] = {}
     sizes: List[int] = []
@@ -55,9 +43,7 @@ def _component_map(state: GameState, colour: str) -> Tuple[Dict[Cell, int], List
         sizes.append(size)
     return mapping, sizes
 
-
 def _cell_scores(state: GameState) -> Dict[Cell, float]:
-    """Lightweight first-pass priority; later rank full turns tactically."""
     mine, mine_sizes = _component_map(state, state.to_move)
     foe, foe_sizes = _component_map(state, other(state.to_move))
     result: Dict[Cell, float] = {}
@@ -76,19 +62,13 @@ def _cell_scores(state: GameState) -> Dict[Cell, float]:
         )
     return result
 
-
 def _turn_tactical_score(
     state: GameState, cells: Tuple[Cell, ...], base: Dict[Cell, float],
     mine: Dict[Cell, int], mine_sizes: List[int],
     foe: Dict[Cell, int], foe_sizes: List[int],
     adjacent: Dict[Cell, set],
 ) -> float:
-    """Estimate complete-turn synergy without making and undoing the turn.
 
-    This computes groups that would be joined by up to three NEW stones,
-    accounting for direct adjacency AND an existing component shared by
-    multiple newly placed stones.
-    """
     count = len(cells)
     links = [{mine[n] for n in adjacent[cell] if n in mine} for cell in cells]
     parent = list(range(count))
@@ -128,7 +108,6 @@ def _turn_tactical_score(
     if growth and potential >= state.scores[other(state.to_move)]:
         score -= 5.0
     return score
-
 
 def ranked_candidate_turns(
     state: GameState, max_branch: int = 10, max_cells: int = 12,
@@ -179,8 +158,7 @@ def ranked_candidate_turns(
         return [list(item[2]) for item in complete]
 
     selected = sorted(top, reverse=True)
-    # Preserve tactical breadth only when the budget can represent each legal
-    # action length. With max_branch=1, return the strongest scored action.
+    # Preserve tactical breadth only when the budget can represent each legal action length. With max_branch=1, return the strongest scored action.
     if max_branch >= limit:
         present = {len(item[2]) for item in selected}
         for length in range(1, limit + 1):

@@ -1,4 +1,5 @@
 """Render Catchup's 61 labelled pointy-top hexes and stone placements."""
+
 import pygame
 
 from ..board.board import Board, WHITE
@@ -11,7 +12,6 @@ CELL_FILL = (215, 230, 242)
 WHITE_STONE = (253, 253, 251)
 BLACK_STONE = (35, 44, 59)
 TEXT_COLOUR = (43, 65, 82)
-
 
 def draw_board(surface: pygame.Surface, board: Board, size: float, origin,
                font: pygame.font.Font, highlight_cells=()) -> None:

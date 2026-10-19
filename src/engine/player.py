@@ -9,7 +9,6 @@ from .move_ordering import MoveOrdering
 from .transposition_table import TranspositionTable
 from .time_manager import Clock, allocate_time
 
-
 class AIPlayer:
     def __init__(
         self, colour: str, total_seconds: float = 600.0,
@@ -26,12 +25,6 @@ class AIPlayer:
     def move_budget(
         self, state: GameState, estimated_moves_left: Optional[int] = None,
     ) -> float:
-        """Estimate remaining moves of *this player*, from vacant cells.
-
-        The number of future turns is uncertain in Catchup (1-3 stones/turn),
-        so this uses a deliberately conservative estimate rather than 20 for
-        every turn. It never allocates more than the remaining game time.
-        """
         if state.to_move != self.colour or state.is_game_over():
             raise ValueError("AI must be the side to move in a nonterminal state")
         empties = len(state.board.empty_cells())

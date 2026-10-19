@@ -25,7 +25,7 @@ from src.engine.move_generation import SearchTimeout
 from src.engine.move_ordering import MoveOrdering
 from src.engine.search import SearchStats, alpha_beta, iterative_deepening
 from src.engine.time_manager import Clock, allocate_time
-from src.engine.transposition_table import TranspositionTable, position_key
+from src.engine.transposition_table import TranspositionTable, occupancy_bits, position_key
 from src.game.notation import format_turn
 from src.game.state import GameState
 
@@ -619,6 +619,223 @@ def run_strength(pairs=10, seconds=10.0, seed_start=2026, output='experiments/re
 
 
 
+
+# --- Paired engine comparisons from varied, legal early/midgame positions ---
+
+@dataclass(frozen=True)
+class ComparisonProfile:
+    name: str
+    depth: int
+    branch: int
+
+
+def make_comparison_position(seed: int, start_empty_cells: int = 41,
+                             max_score_gap: int = 3, max_tries: int = 200):
+    """Return (legal root, generation seed) for a reproducible paired match.
+
+    Unlike the older one-stone opening comparison, this samples an actual
+    sequence of legal 1-3-stone turns. It optionally rejects roots where the
+    current largest groups differ by too much. This *does not* prove that the
+    position is fair or strategically balanced; colour splits are still logged.
+    """
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError('seed must be an integer')
+    if isinstance(start_empty_cells, bool) or not isinstance(start_empty_cells, int) \
+            or not 1 <= start_empty_cells <= 60:
+        raise ValueError('start_empty_cells must be an integer in 1..60')
+    if isinstance(max_score_gap, bool) or not isinstance(max_score_gap, int) \
+            or max_score_gap < -1:
+        raise ValueError('max_score_gap must be -1 (disabled) or nonnegative')
+    if isinstance(max_tries, bool) or not isinstance(max_tries, int) or max_tries < 1:
+        raise ValueError('max_tries must be a positive integer')
+
+    for attempt in range(max_tries):
+        candidate_seed = seed + attempt * 1_000_003
+        root = build_position(candidate_seed, start_empty_cells)
+        gap = abs(root.scores[WHITE] - root.scores[BLACK])
+        if max_score_gap == -1 or gap <= max_score_gap:
+            return root, candidate_seed
+    raise ValueError(
+        f'No legal starting position with score gap <= {max_score_gap} '
+        f'in {max_tries} tries for seed {seed}. Increase --max-score-gap '
+        'or use --max-score-gap -1 to disable filtering.'
+    )
+
+
+def compare_one_game(root: GameState, seed: int, position_seed: int,
+                     pair: int, game: int,
+                     white: ComparisonProfile, black: ComparisonProfile,
+                     seconds: float, max_cells: int, endgame_cells: int) -> dict:
+    """Play the identical supplied root; only profile-to-colour assignment varies.
+
+    Prefix moves are *not* billed to either engine. Every match receives fresh
+    clocks and independent, per-side caches which persist for the game only.
+    """
+    state = root.copy()
+    wmask, bmask = occupancy_bits(state)
+    profiles = {WHITE: white, BLACK: black}
+    clocks = {c: Clock(seconds) for c in (WHITE, BLACK)}
+    tables = {c: TranspositionTable() for c in (WHITE, BLACK)}
+    ordering = {c: MoveOrdering() for c in (WHITE, BLACK)}
+    nodes = {c: 0 for c in (WHITE, BLACK)}
+    depths = {c: [] for c in (WHITE, BLACK)}
+    termination = 'board_full'
+
+    while not state.is_game_over():
+        side = state.to_move
+        left = clocks[side].time_left()
+        if left <= 0:
+            termination = f'{side}: clock exhausted'
+            break
+        profile = profiles[side]
+        allowance = allocate_time(left, max(1, math.ceil(len(state.board.empty_cells()) / 3)))
+        stats = SearchStats()
+        before = fingerprint(state)
+        clocks[side].start_move()
+        try:
+            turn = iterative_deepening(
+                state, allowance, side,
+                max_depth=profile.depth, max_branch=profile.branch,
+                max_cells=max_cells,
+                endgame_full_width_cells=endgame_cells,
+                table=tables[side], ordering=ordering[side], stats=stats,
+                use_tt=True, use_ordering=True,
+            )
+        except Exception as error:
+            termination = f'{side}: search error ({type(error).__name__}: {error})'
+            break
+        finally:
+            clocks[side].stop_move()
+        if fingerprint(state) != before:
+            termination = f'{side}: search mutated the game state'
+            break
+        if clocks[side].time_left() <= 0:
+            termination = f'{side}: clock exhausted'
+            break
+        try:
+            state.apply_turn(turn)  # independent legality check
+        except (TypeError, ValueError) as error:
+            termination = f'{side}: illegal turn ({error})'
+            break
+        nodes[side] += stats.nodes
+        depths[side].append(stats.completed_depth)
+
+    if termination == 'board_full':
+        winner = state.winner()
+    else:
+        winner = other(state.to_move)   # report the other profile as forfeit winner
+    return {
+        'pair': pair, 'game': game, 'seed': seed,
+        'position_seed': position_seed,
+        'start_empty_cells': len(root.board.empty_cells()),
+        'start_to_move': root.to_move,
+        'start_white_score': root.scores[WHITE],
+        'start_black_score': root.scores[BLACK],
+        'start_score_gap': abs(root.scores[WHITE] - root.scores[BLACK]),
+        'start_white_mask': f'0x{wmask:016x}',
+        'start_black_mask': f'0x{bmask:016x}',
+        'start_bonus_flag': int(root.score_increased_last_turn),
+        'prefix_turns': len(root.history),
+        'prefix_moves': ' | '.join(format_turn(entry.cells) for entry in root.history),
+        'white_profile': white.name, 'black_profile': black.name,
+        'white_max_depth': white.depth, 'black_max_depth': black.depth,
+        'white_max_branch': white.branch, 'black_max_branch': black.branch,
+        'winner': winner if winner is not None else 'draw',
+        'winner_profile': profiles[winner].name if winner is not None else 'draw',
+        'termination': termination,
+        'total_turns': len(state.history),
+        'played_turns': len(state.history) - len(root.history),
+        'white_score': state.scores[WHITE], 'black_score': state.scores[BLACK],
+        'white_seconds_used': round(seconds - clocks[WHITE].time_left(), 6),
+        'black_seconds_used': round(seconds - clocks[BLACK].time_left(), 6),
+        'white_nodes': nodes[WHITE], 'black_nodes': nodes[BLACK],
+        'white_mean_completed_depth': (round(mean(depths[WHITE]), 3) if depths[WHITE] else 0),
+        'black_mean_completed_depth': (round(mean(depths[BLACK]), 3) if depths[BLACK] else 0),
+    }
+
+
+def compare_profiles(*, pairs: int = 10, seconds: float = 10.0,
+                     seed_start: int = 2026, start_empty_cells: int = 41,
+                     max_score_gap: int = 3, max_tries: int = 200,
+                     depth_a: int = 4, depth_b: int = 6,
+                     branch_a: int = 12, branch_b: int = 12,
+                     max_cells: int = 14, endgame_cells: int = 7,
+                     output: str = 'experiments/results/compare.csv') -> list[dict]:
+    """Isolate depth or branching while holding all other engine settings fixed.
+
+    A and B each play both colours from the exact same legal root position.
+    `seconds` is the per-AI game clock for the *remaining* moves after the
+    constructed prefix. The prefix is generated, not searched/timed.
+    """
+    for name, value in (('pairs', pairs), ('seed_start', seed_start),
+                        ('depth_a', depth_a), ('depth_b', depth_b),
+                        ('branch_a', branch_a), ('branch_b', branch_b),
+                        ('max_cells', max_cells), ('endgame_cells', endgame_cells)):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f'{name} must be an integer')
+    if min(pairs, depth_a, depth_b, branch_a, branch_b, max_cells) < 1:
+        raise ValueError('pairs, depths, branches and max_cells must be positive')
+    if not (0 <= endgame_cells <= 10):
+        raise ValueError('endgame_cells must be from 0 to 10')
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) \
+            or not math.isfinite(seconds) or not 0 < seconds <= 600:
+        raise ValueError('seconds must be finite and in (0, 600]')
+    if depth_a == depth_b and branch_a == branch_b:
+        raise ValueError('A and B must differ in maximum depth or maximum branch')
+    if not str(output).strip():
+        raise ValueError('output CSV path must not be empty')
+    # Validate position settings before starting any expensive match.
+    make_comparison_position(seed_start, start_empty_cells, max_score_gap, max_tries)
+    a = ComparisonProfile(f'd{depth_a}_b{branch_a}', depth_a, branch_a)
+    b = ComparisonProfile(f'd{depth_b}_b{branch_b}', depth_b, branch_b)
+    results = []
+    for index in range(pairs):
+        seed = seed_start + index
+        root, actual_seed = make_comparison_position(seed, start_empty_cells,
+                                                      max_score_gap, max_tries)
+        root_before = fingerprint(root)
+        for game, (white, black) in enumerate(((a, b), (b, a)), 1):
+            row = compare_one_game(root, seed, actual_seed, index + 1, game,
+                                   white, black, float(seconds), max_cells,
+                                   endgame_cells)
+            if fingerprint(root) != root_before:
+                raise AssertionError('Paired root was modified by a game')
+            results.append(row)
+            print(f'Pair {index+1} game {game}: seed={seed} '
+                  f'start={row["start_empty_cells"]} empty '
+                  f'scores={row["start_white_score"]}/{row["start_black_score"]} '
+                  f'W={white.name} B={black.name} winner={row["winner_profile"]} '
+                  f'({row["termination"]})', flush=True)
+
+    path = Path(output)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=list(results[0]))
+        writer.writeheader()
+        writer.writerows(results)
+
+    wins = {p.name: sum(r['winner_profile'] == p.name for r in results)
+            for p in (a, b)}
+    wins['draw'] = sum(r['winner_profile'] == 'draw' for r in results)
+    colours = {side: sum(r['winner'] == side for r in results)
+               for side in (WHITE, BLACK)}
+    abnormal = sum(r['termination'] != 'board_full' for r in results)
+    same_colour = sum(results[i]['winner'] == results[i+1]['winner']
+                      and results[i]['winner'] != 'draw'
+                      for i in range(0, len(results), 2))
+    print(f'Saved {len(results)} games to {path}')
+    print('Profile wins:', wins)
+    print('Winning colours:', colours)
+    print(f'Same winning colour in both games: {same_colour}/{pairs} pairs')
+    print('Abnormal terminations:', abnormal)
+    for p in (a, b):
+        reached = [float(r[f'{side}_mean_completed_depth'])
+                   for r in results for side in ('white', 'black')
+                   if r[f'{side}_profile'] == p.name]
+        print(f'{p.name}: mean completed depth {mean(reached):.2f}' if reached else f'{p.name}: no search depths')
+    return results
+
+
 # --- Summaries of measured CSV outputs ---
 
 def _read(path):
@@ -805,6 +1022,24 @@ def main() -> None:
     p.add_argument("--seed-start", type=int, default=2026)
     p.add_argument("--output", default="experiments/results/strength_matchups.csv")
 
+    p = commands.add_parser("compare", help="Controlled depth or branch matchups from varied legal positions")
+    p.add_argument("--pairs", type=int, default=10)
+    p.add_argument("--seconds", type=float, default=10.0,
+                   help="Thinking seconds per AI for the remainder of each game")
+    p.add_argument("--seed-start", type=int, default=2026)
+    p.add_argument("--start-empty-cells", type=int, default=41,
+                   help="Cells left after seeded legal prefix; 60 is one-stone opening")
+    p.add_argument("--max-score-gap", type=int, default=3,
+                   help="Maximum difference in current largest groups; -1 disables filtering")
+    p.add_argument("--max-tries", type=int, default=200)
+    p.add_argument("--depth-a", type=int, default=4)
+    p.add_argument("--depth-b", type=int, default=6)
+    p.add_argument("--branch-a", type=int, default=12)
+    p.add_argument("--branch-b", type=int, default=12)
+    p.add_argument("--max-cells", type=int, default=14)
+    p.add_argument("--endgame-cells", type=int, default=7)
+    p.add_argument("--output", default="experiments/results/compare.csv")
+
     p = commands.add_parser("summary", help="Summarize measured experiment CSVs")
     p.add_argument("--result-dir", default="experiments/results")
     p = commands.add_parser("plots", help="Create figures from measured experiment CSVs")
@@ -832,6 +1067,14 @@ def main() -> None:
     elif args.command == "strength":
         run_strength(pairs=args.pairs, seconds=args.seconds, seed_start=args.seed_start,
                      output=args.output)
+    elif args.command == "compare":
+        compare_profiles(pairs=args.pairs, seconds=args.seconds, seed_start=args.seed_start,
+                         start_empty_cells=args.start_empty_cells,
+                         max_score_gap=args.max_score_gap, max_tries=args.max_tries,
+                         depth_a=args.depth_a, depth_b=args.depth_b,
+                         branch_a=args.branch_a, branch_b=args.branch_b,
+                         max_cells=args.max_cells, endgame_cells=args.endgame_cells,
+                         output=args.output)
     elif args.command == "summary":
         summarize(args.result_dir)
     elif args.command == "plots":

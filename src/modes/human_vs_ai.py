@@ -83,12 +83,45 @@ class HumanGameController:
 def run(human_colour: str = WHITE, think_seconds: float = 600.0) -> None:
     from ..gui.app import GuiApp
 
+    from ..gui.turn_clock import TurnClock
+
     controller = HumanGameController(human_colour, think_seconds)
+    human_clock = TurnClock(think_seconds)
+
+    def sync_clock():
+        human_clock.sync(controller.can_input())
+
+    def confirm(cells):
+        controller.confirm_turn(cells)
+        sync_clock()
+
+    def undo():
+        controller.undo()
+        sync_clock()
+
+    def restart():
+        controller.reset()
+        human_clock.reset(think_seconds)
+        sync_clock()
+
+    def frame():
+        controller.update()
+        sync_clock()
+
+    def clock_values():
+        return {
+            human_colour: (human_clock.time_left(), human_clock.is_running),
+            other(human_colour): (controller.ai.clock.time_left(),
+                                  controller.ai.clock.is_running),
+        }
+
+    sync_clock()
     app = GuiApp(
-        controller.state, controller.confirm_turn, controller.undo,
-        on_restart=controller.reset, on_frame=controller.update,
+        controller.state, confirm, undo,
+        on_restart=restart, on_frame=frame,
         state_provider=lambda: controller.state,
         input_enabled=controller.can_input, status_provider=controller.status,
+        clock_provider=clock_values,
         heading=f"Catchup | You: {'White' if human_colour == WHITE else 'Black'}",
     )
     try:

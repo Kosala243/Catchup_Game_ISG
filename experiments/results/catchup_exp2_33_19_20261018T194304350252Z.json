@@ -1,0 +1,127 @@
+{
+  "record_type": "catchup-search-diagnostics-v1",
+  "timestamp_utc": "2026-10-18T19:43:04.350170+00:00",
+  "experiment": {
+    "number": 2,
+    "title": "Move ordering",
+    "use_tt": false,
+    "use_ordering": true,
+    "configuration": "ordering_only"
+  },
+  "position": {
+    "seed": 33,
+    "empty_cells": 19,
+    "to_move": "W",
+    "white_score": 7,
+    "black_score": 10,
+    "previous_turn_increased_score": true,
+    "opening_move": false,
+    "history_length": 18
+  },
+  "parameters": {
+    "max_depth": 4,
+    "budget_seconds": 4.0,
+    "max_branch": 12,
+    "max_cells": 14,
+    "tt_preview_limit": 25
+  },
+  "result": {
+    "best_turn": "F4 G5 E7",
+    "evaluation": -55.92131147540982,
+    "completed_depth": 4,
+    "timed_out": false,
+    "cancelled": false,
+    "elapsed_seconds": 0.526547,
+    "fallback_used": false
+  },
+  "iterations": [
+    {
+      "depth": 1,
+      "evaluation": 26.903278688524637,
+      "best_turn": "C3 D4 E7",
+      "stones": 3,
+      "elapsed_seconds": 0.009776,
+      "tt_size": 0,
+      "nodes": 13,
+      "leaves": 12,
+      "cutoffs": 0,
+      "searched_moves": 12,
+      "completed_depth": 1,
+      "timed_out": false,
+      "tt_hits": 0,
+      "tt_cutoffs": 0,
+      "tt_stores": 0,
+      "generated_moves": 12,
+      "endgame_full_width_nodes": 0
+    },
+    {
+      "depth": 2,
+      "evaluation": -46.33770491803273,
+      "best_turn": "F4 G5 E7",
+      "stones": 3,
+      "elapsed_seconds": 0.053743,
+      "tt_size": 0,
+      "nodes": 69,
+      "leaves": 56,
+      "cutoffs": 8,
+      "searched_moves": 68,
+      "completed_depth": 2,
+      "timed_out": false,
+      "tt_hits": 0,
+      "tt_cutoffs": 0,
+      "tt_stores": 0,
+      "generated_moves": 156,
+      "endgame_full_width_nodes": 0
+    },
+    {
+      "depth": 3,
+      "evaluation": -24.896721311475403,
+      "best_turn": "F4 G5 E7",
+      "stones": 3,
+      "elapsed_seconds": 0.1569,
+      "tt_size": 0,
+      "nodes": 238,
+      "leaves": 180,
+      "cutoffs": 42,
+      "searched_moves": 237,
+      "completed_depth": 3,
+      "timed_out": false,
+      "tt_hits": 0,
+      "tt_cutoffs": 0,
+      "tt_stores": 0,
+      "generated_moves": 696,
+      "endgame_full_width_nodes": 0
+    },
+    {
+      "depth": 4,
+      "evaluation": -55.92131147540982,
+      "best_turn": "F4 G5 E7",
+      "stones": 3,
+      "elapsed_seconds": 0.306033,
+      "tt_size": 0,
+      "nodes": 933,
+      "leaves": 674,
+      "cutoffs": 200,
+      "searched_moves": 932,
+      "completed_depth": 4,
+      "timed_out": false,
+      "tt_hits": 0,
+      "tt_cutoffs": 0,
+      "tt_stores": 0,
+      "generated_moves": 3108,
+      "endgame_full_width_nodes": 0
+    }
+  ],
+  "tt_summary": {
+    "size": 0,
+    "exact": 0,
+    "lower": 0,
+    "upper": 0,
+    "capacity": 0
+  },
+  "tt_preview": [],
+  "root_key": {
+    "white_mask": "0x0085d83e0400da28",
+    "black_mask": "0x157a03c0295c0412"
+  }
+}

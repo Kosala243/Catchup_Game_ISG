@@ -1,8 +1,3 @@
-"""PV-first, killer-turn and history ordering for whole Catchup turns.
-
-Reordering an existing candidate list does not change which moves are searched.
-Killer/history heuristics are deliberately lightweight for small branch caps.
-"""
 from collections import defaultdict
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -10,7 +5,6 @@ from ..board.coordinates import Cell
 from ..game.state import Turn
 
 Action = Tuple[Cell, ...]
-
 
 class MoveOrdering:
     def __init__(self) -> None:
@@ -21,7 +15,7 @@ class MoveOrdering:
         self, moves: Sequence[Turn], colour: str, depth: int,
         pv_move: Optional[Action] = None,
     ) -> List[Turn]:
-        """PV first, then killer/history, keeping the input's quick-score order on ties."""
+        """PV first, then killer/history"""
         killers = self.killers.get(depth, ())
         ranked = []
         for index, move in enumerate(moves):

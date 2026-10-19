@@ -1,10 +1,3 @@
-"""Time-limited selective alpha-beta search with tactical exact endgames.
-
-Every ply is one entire Catchup turn. Per-player caches are optional and
-bounded; they are keyed by exact board occupancy, rule state, perspective,
-search settings and the endgame full-width threshold. Search never changes
-its caller's GameState after returning (including timeout paths).
-"""
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -21,10 +14,7 @@ from .transposition_table import (
     Bound, TTEntry, TranspositionTable, occupancy_bits, position_key, turn_mask,
 )
 
-# ContextVar is worker/thread safe. The public choose_move(state, budget) API
-# stays unchanged; player.py can nevertheless provide its own cache per AI.
 _SEARCH_CACHE: ContextVar[tuple | None] = ContextVar('catchup_search_cache', default=None)
-
 
 @contextmanager
 def shared_search_cache(table: TranspositionTable, ordering: MoveOrdering):
@@ -33,7 +23,6 @@ def shared_search_cache(table: TranspositionTable, ordering: MoveOrdering):
         yield
     finally:
         _SEARCH_CACHE.reset(token)
-
 
 @dataclass
 class SearchStats:
@@ -49,7 +38,6 @@ class SearchStats:
     generated_moves: int = 0
     endgame_full_width_nodes: int = 0
 
-
 def alpha_beta(
     state: GameState, depth: int, alpha: float, beta: float, colour: str,
     *, max_branch: int = 12, max_cells: int = 14,
@@ -60,12 +48,7 @@ def alpha_beta(
     use_tt: bool = True, use_ordering: bool = True,
     endgame_full_width_cells: int = 7,
 ) -> Tuple[float, Optional[Turn]]:
-    """Return (evaluation, best legal complete turn) from colour's viewpoint.
-
-    Selective except for explicitly requested full width or small endgames.
-    Endgame full-width does not mean unlimited depth: it is exact only
-    within the depth horizon or once the board has become terminal.
-    """
+    
     if depth < 0:
         raise ValueError('search depth cannot be negative')
     if colour not in (WHITE, BLACK):
@@ -182,12 +165,7 @@ def iterative_deepening(
     ordering: Optional[MoveOrdering] = None,
     endgame_full_width_cells: int = 7,
 ) -> Turn:
-    """Iterate to at most max_depth or until the shared move deadline.
 
-    Retains the deepest FULLY finished iteration, never an interrupted turn.
-    Shared caches can persist between AIPlayer calls; default direct callers
-    get fresh per-search caches.
-    """
     if state.is_game_over():
         raise ValueError('cannot search a completed game')
     if colour != state.to_move:
@@ -219,12 +197,10 @@ def iterative_deepening(
         if candidate is not None:
             best = candidate
             stats.completed_depth = depth
-        # Avoid launching another substantial iteration when almost no time
-        # remains. The deadline still protects an unpredictable search cost.
+        # Avoid launching another iteration when almost no time remains
         if time.monotonic() >= deadline:
             break
     return list(best)
-
 
 def choose_move(state: GameState, time_budget_seconds: float) -> Turn:
     """Stable two-argument API used by GUI, tournament and existing tests."""

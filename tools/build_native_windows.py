@@ -24,7 +24,6 @@ def build_command(root: Path, executable: str = sys.executable) -> list[str]:
         "--hidden-import=pygame", str(root / "main.py"),
     ]
 
-
 def build(root: Path) -> Path:
     if sys.platform != "win32":
         raise OSError("Windows executables must be built on Windows; PyInstaller cannot cross-compile from macOS/Linux")

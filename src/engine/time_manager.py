@@ -1,12 +1,6 @@
-"""Whole-game monotonic clock and conservative move budgeting.
-
-The clock measures only AI thinking time. Opponent input and GUI display time
-are not charged. A game starts with 600 seconds by default.
-"""
 import math
 import time
 from typing import Callable, Optional
-
 
 def _finite_nonnegative(value: float, name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -16,9 +10,7 @@ def _finite_nonnegative(value: float, name: str) -> float:
         raise ValueError(f"{name} must be finite and nonnegative")
     return value
 
-
 class Clock:
-    """Track cumulative AI thinking time across turns and saved sessions."""
 
     def __init__(
         self, total_seconds: float = 600.0,
@@ -42,7 +34,6 @@ class Clock:
         return self._move_started_at is not None
 
     def time_left(self) -> float:
-        """Include time consumed by the move currently being searched."""
         if self._move_started_at is None:
             return self.remaining_seconds
         elapsed = max(0.0, self._now() - self._move_started_at)
@@ -56,7 +47,6 @@ class Clock:
         self._move_started_at = self._now()
 
     def stop_move(self) -> float:
-        """Charge elapsed wall time once; return the elapsed duration."""
         if self._move_started_at is None:
             return 0.0
         elapsed = max(0.0, self._now() - self._move_started_at)
@@ -64,14 +54,7 @@ class Clock:
         self._move_started_at = None
         return elapsed
 
-
 def allocate_time(remaining_seconds: float, estimated_moves_left: int) -> float:
-    """Move budget, conservatively sharing remaining game time.
-
-    The 0.92 fraction leaves time for future moves, Python overhead, and a
-    safety margin. The absolute reserve also prevents spending the last
-    few milliseconds of the whole-game clock in one search.
-    """
     remaining = _finite_nonnegative(remaining_seconds, "remaining_seconds")
     moves = max(1, int(estimated_moves_left))
     if remaining == 0:

@@ -92,11 +92,19 @@ def run(think_seconds: float = 600.0, delay_ms: int = 400) -> None:
     from ..gui.app import GuiApp
 
     controller = VisualSelfPlayController(think_seconds, delay_ms)
+
+    def clock_values():
+        return {
+            colour: (controller.players[colour].clock.time_left(),
+                     controller.players[colour].clock.is_running)
+            for colour in (WHITE, BLACK)
+        }
     app = GuiApp(
         controller.state, controller.confirm_turn, controller.undo,
         on_restart=controller.reset, on_frame=controller.update,
         on_pause=controller.toggle_pause, state_provider=lambda: controller.state,
         input_enabled=lambda: False, status_provider=controller.status,
+        clock_provider=clock_values,
         heading="Catchup | AI vs AI",
     )
     try:
@@ -108,22 +116,20 @@ def run(think_seconds: float = 600.0, delay_ms: int = 400) -> None:
 
 
 def play_one_game(think_seconds: float = 600.0) -> dict:
+    """Run a whole game headlessly, reporting the two independent AI clocks."""
     state = GameState()
     players = {
         WHITE: AIPlayer(WHITE, think_seconds),
         BLACK: AIPlayer(BLACK, think_seconds),
     }
-
-    turns = 0
     while not state.is_game_over():
-        move = players[state.to_move].choose_move(state)
+        player = players[state.to_move]
+        move = player.choose_move(state)
         state.apply_turn(move)
-        turns += 1
-
     return {
         "winner": state.winner(),
         "final_scores": dict(state.scores),
-        "turns": turns,
+        "turns": len(state.history),
         "white_time_left": players[WHITE].clock.time_left(),
         "black_time_left": players[BLACK].clock.time_left(),
     }

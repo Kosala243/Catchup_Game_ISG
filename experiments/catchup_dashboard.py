@@ -1,11 +1,7 @@
-"""Clickable Pygame experiment dashboard for the EXISTING Catchup engine.
+"""Clickable Pygame experiment dashboard for the Catchup engine.
 
-Run from the project root:
+Had to run from the project root:
     python3 -m experiments.catchup_dashboard
-
-The four experiments are ablations at a fixed, seeded legal board position.
-A search iteration is one completed depth, NOT one stone placement.
-This is a separate developer UI, not part of tournament mode.
 """
 from __future__ import annotations
 
@@ -23,11 +19,6 @@ W, H = 1280, 865  # Virtual canvas: all existing layout coordinates stay unchang
 
 
 def initial_window_size(desktop_size: tuple[int, int]) -> tuple[int, int]:
-    """Fit under the macOS/Windows menu bars and Dock/taskbar.
-
-    Desktop dimensions reported by pygame are logical window coordinates.
-    Allow vertical clearance for window decorations and a visible Dock.
-    """
     dw, dh = desktop_size
     if dw <= 0 or dh <= 0:
         raise ValueError("desktop dimensions must be positive")
@@ -35,7 +26,6 @@ def initial_window_size(desktop_size: tuple[int, int]) -> tuple[int, int]:
 
 
 def fit_viewport(window_size: tuple[int, int]) -> tuple[int, int, int, int]:
-    """Return the letterboxed virtual-canvas rect within a real window."""
     dw, dh = window_size
     if dw <= 0 or dh <= 0:
         raise ValueError("window dimensions must be positive")
@@ -47,13 +37,11 @@ def fit_viewport(window_size: tuple[int, int]) -> tuple[int, int, int, int]:
 
 def mouse_to_canvas(point: tuple[int, int],
                     window_size: tuple[int, int]) -> tuple[int, int] | None:
-    """Translate actual mouse clicks back to the 1280x865 layout."""
     left, top, width, height = fit_viewport(window_size)
     x, y = point
     if not (left <= x < left + width and top <= y < top + height):
         return None  # Ignore clicks in letterbox margins.
     return int((x - left) * W / width), int((y - top) * H / height)
-
 
 BG = (16, 24, 37)
 PANEL = (27, 40, 56)
@@ -63,7 +51,6 @@ SUBTEXT = (172, 192, 207)
 PRIMARY = (53, 113, 157)
 ACTIVE = (23, 140, 132)
 AMBER = (237, 187, 83)
-
 
 def run(*, seed: int = 33, empty_cells: int = 19, max_depth: int = 4,
         budget_seconds: float = 4.0) -> None:
@@ -76,8 +63,6 @@ def run(*, seed: int = 33, empty_cells: int = 19, max_depth: int = 4,
     desktop = pygame.display.get_desktop_sizes()[0]
     actual_size = initial_window_size(desktop)
     display = pygame.display.set_mode(actual_size, pygame.RESIZABLE)
-    # Draw everything at its original 1280x865 coordinates, then scale once.
-    # This keeps fonts, board geometry, button locations, and spacing in sync.
     window = pygame.Surface((W, H)).convert()
     pygame.display.set_caption("Catchup | Search experiment dashboard")
     clock = pygame.time.Clock()
@@ -96,7 +81,7 @@ def run(*, seed: int = 33, empty_cells: int = 19, max_depth: int = 4,
     rows: list[dict] = []
     report: dict | None = None
     selected = None
-    status = "Select Experiment 1-4. All four use the SAME seeded position."
+    status = "Select Experiment 1-4. All four use the same seeded position."
     tt_page = 0
     selected_tt_row = None
     stop = False
@@ -184,8 +169,6 @@ def run(*, seed: int = 33, empty_cells: int = 19, max_depth: int = 4,
                 cancel.set()
                 stop = True
             elif event.type == pygame.VIDEORESIZE:
-                # pygame 2 supports resizing; render scale and hit-testing are
-                # recomputed from the new window size on the next frame.
                 display = pygame.display.set_mode(
                     (max(1, event.w), max(1, event.h)), pygame.RESIZABLE
                 )
@@ -228,8 +211,6 @@ def run(*, seed: int = 33, empty_cells: int = 19, max_depth: int = 4,
                 if pygame.Rect(1090, 245, 163, 32).collidepoint(pt) and busy:
                     cancel.set()
                     status = "Cancel requested. Current iteration finishes or times out."
-                # Data rows render at 583 + 24*i. Map clicks to those rows,
-                # not to the 27-pixel approximation used by the old UI.
                 if 30 <= pt[0] < 925 and 580 <= pt[1] < 796:
                     index = tt_page * 9 + (pt[1] - 580) // 24
                     if 0 <= index < len(current_tt()):
@@ -248,7 +229,6 @@ def run(*, seed: int = 33, empty_cells: int = 19, max_depth: int = 4,
             font_line(f"{label}: {value}", (x, 175), max_width=157)
         for rect in settings_buttons().values():
             button(rect, "-" if (rect.x - 40) % 285 == 165 else "+", not busy)
-        # Paint +/- explicitly because positions do not share a uniform origin.
         for (_, direction), rect in settings_buttons().items():
             pygame.draw.rect(window, (48, 73, 97) if not busy else (50, 60, 72), rect, border_radius=6)
             font_line("+" if direction == 1 else "-", (rect.x + 12, rect.y + 6))
@@ -303,8 +283,6 @@ def run(*, seed: int = 33, empty_cells: int = 19, max_depth: int = 4,
         font_line(f"TT sample: {len(tt)} rows (not the entire table). Page {tt_page + 1}. Scroll/PgDn/PgUp.",
                   (35, 786), font=small, color=SUBTEXT)
 
-        # Mini-board displays the ROOT position, or the selected TT key's
-        # exact bitboard occupancy. It never mutates the actual GameState.
         pygame.draw.line(window, BORDER, (955, 554), (955, 796), 1)
         active_entry = (tt[selected_tt_row] if selected_tt_row is not None
                         and selected_tt_row < len(tt) else None)
@@ -347,8 +325,7 @@ def run(*, seed: int = 33, empty_cells: int = 19, max_depth: int = 4,
         else:
             font_line("Tip: use the same seed/empty/depth/time settings for all four comparisons.",
                       (29, 830), font=small, color=SUBTEXT)
-        # Preserve the design's aspect ratio, even after manual resize.
-        # All content—including the footer below y=824—fits in the window.
+
         display.fill(BG)
         left, top, scaled_w, scaled_h = fit_viewport(display.get_size())
         fitted = pygame.transform.smoothscale(window, (scaled_w, scaled_h))
@@ -369,7 +346,6 @@ def main() -> None:
         parser.error("Require 1<=empty-cells<=60, 1<=max-depth<=8, 0<budget-seconds<=600")
     run(seed=args.seed, empty_cells=args.empty_cells,
         max_depth=args.max_depth, budget_seconds=args.budget_seconds)
-
 
 if __name__ == "__main__":
     main()

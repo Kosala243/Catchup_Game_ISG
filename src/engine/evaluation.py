@@ -1,8 +1,5 @@
-"""Catchup heuristic for nonterminal search nodes.
-
-Largest connected group remains the most important feature, but potential
-one-cell mergers and opponent threats also matter. Terminal outcomes ALWAYS
-use the official lexicographic group comparison, not this heuristic.
+"""
+- Catchup heuristic for nonterminal search nodes.
 """
 from ..board.board import BLACK, WHITE, other
 from ..board.coordinates import neighbours
@@ -10,7 +7,6 @@ from ..game.state import GameState
 from .move_generation import _component_map
 
 WIN_VALUE = 1_000_000.0
-
 
 def _features_from_maps(state: GameState, colour: str, mapping: dict, sizes: list, enemy_map: dict) -> dict:
     board = state.board
@@ -41,13 +37,10 @@ def _features_from_maps(state: GameState, colour: str, mapping: dict, sizes: lis
         "contested_frontier": threatened_connections,
     }
 
-
 def position_features(state: GameState, colour: str) -> dict:
-    """Human-readable components for debugging and comparisons."""
     mapping, sizes = _component_map(state, colour)
     enemy_map, _ = _component_map(state, other(colour))
     return _features_from_maps(state, colour, mapping, sizes, enemy_map)
-
 
 def _weighted_features(state: GameState, p: dict) -> float:
     progress = (61 - len(state.board.empty_cells())) / 61.0
@@ -61,10 +54,8 @@ def _weighted_features(state: GameState, p: dict) -> float:
         + 0.25 * p["contested_frontier"]
     )
 
-
 def _position_features(state: GameState, colour: str) -> float:
     return _weighted_features(state, position_features(state, colour))
-
 
 def evaluate(state: GameState, colour: str) -> float:
     if colour not in (WHITE, BLACK):
@@ -78,15 +69,12 @@ def evaluate(state: GameState, colour: str) -> float:
     own = _features_from_maps(state, colour, own_map, own_sizes, foe_map)
     foe = _features_from_maps(state, opponent, foe_map, foe_sizes, own_map)
     value = _weighted_features(state, own) - _weighted_features(state, foe)
-    # The active player can place 3 only if the *last* score increase enabled
-    # it. Reward the side with the opportunity, not the one that granted it.
+    # The active player can place 3 only if the *last* score increase enabled it.
     if state.stones_allowed_this_turn() == 3:
         value += 6.5 if state.to_move == colour else -6.5
     return value
 
-
 def describe_evaluation(state: GameState, colour: str) -> dict:
-    """Read-only diagnostic; evaluate() remains the canonical search score."""
     if colour not in (WHITE, BLACK):
         raise ValueError(f"invalid colour: {colour!r}")
     return {"perspective": colour, "own": position_features(state, colour),

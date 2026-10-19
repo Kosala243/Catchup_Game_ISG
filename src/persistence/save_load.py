@@ -1,9 +1,11 @@
-"""Atomic Catchup save/load with verified game history and optional AI clock.
+"""
+Atomic Catchup save/load with verified game history and optional AI clock.
 
 save_game/load_game preserve the original Phase 1 plain-game format.
-save_tournament_session/load_tournament_session store an additional clock and
-AI colour so --resume cannot silently give the AI a fresh 600 seconds.
+save_tournament_session/load_tournament_session store an additional clock and AI colour.
+so --resume cannot simply give the AI a fresh 600 seconds.
 """
+
 import json
 import math
 import os
@@ -15,7 +17,6 @@ from ..engine.time_manager import Clock
 from ..game.state import GameState
 
 SESSION_FORMAT = "catchup-tournament-v1"
-
 
 def _state_to_dict(state: GameState) -> Dict[str, Any]:
     return {
@@ -35,7 +36,6 @@ def _state_to_dict(state: GameState) -> Dict[str, Any]:
         ],
     }
 
-
 def _state_from_dict(data: Dict[str, Any]) -> GameState:
     if not isinstance(data, dict) or not isinstance(data.get("history"), list):
         raise ValueError("invalid Catchup save structure")
@@ -49,7 +49,6 @@ def _state_from_dict(data: Dict[str, Any]) -> GameState:
     if _state_to_dict(state) != data:
         raise ValueError("saved position is inconsistent with its move history")
     return state
-
 
 def _atomic_save(data: Dict[str, Any], path: str) -> None:
     directory = os.path.dirname(os.path.abspath(path))
@@ -69,24 +68,18 @@ def _atomic_save(data: Dict[str, Any], path: str) -> None:
         if temp_path is not None and os.path.exists(temp_path):
             os.remove(temp_path)
 
-
 def _read_json(path: str) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as handle:
         return json.load(handle)
 
-
 def save_game(state: GameState, path: str) -> None:
-    """Save a plain GameState in the original Phase 1 format."""
     _atomic_save(_state_to_dict(state), path)
 
-
 def load_game(path: str) -> GameState:
-    """Read plain game saves or the game part of a tournament session."""
     data = _read_json(path)
     if isinstance(data, dict) and data.get("format") == SESSION_FORMAT:
         return _state_from_dict(data["game"])
     return _state_from_dict(data)
-
 
 def _valid_clock_number(value: Any, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (float, int)):
@@ -96,17 +89,12 @@ def _valid_clock_number(value: Any, label: str) -> float:
         raise ValueError(f"{label} must be finite and nonnegative")
     return n
 
-
 def save_tournament_session(
     state: GameState, path: str, ai_colour: str, clock: Clock,
     reserved_seconds: float = 0.0,
 ) -> None:
-    """Save the board and clock atomically.
+    # Save the board and clock atomically
 
-    `reserved_seconds` is used immediately before an AI search starts. On a
-    crash during search, loading conservatively charges that budget once.
-    Successful searches replace the reservation with actual consumed time.
-    """
     if ai_colour not in (WHITE, BLACK):
         raise ValueError("invalid AI colour")
     if clock.is_running:
@@ -126,11 +114,10 @@ def save_tournament_session(
         },
     }, path)
 
-
 def load_tournament_session(
     path: str, expected_colour: str, max_total_seconds: float = 600.0,
 ) -> Tuple[GameState, Clock]:
-    """Restore a saved game with no time reset and correct colour matching."""
+
     data = _read_json(path)
     if not isinstance(data, dict) or data.get("format") != SESSION_FORMAT:
         raise ValueError(

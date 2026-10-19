@@ -5,6 +5,7 @@ through AIWorker and exclusively own the live GameState.
 """
 from typing import Callable, List, Optional
 
+import math
 import pygame
 
 from ..board.board import BLACK, WHITE
@@ -31,6 +32,7 @@ class GuiApp:
         state_provider: Optional[Callable[[], GameState]] = None,
         input_enabled: Optional[Callable[[], bool]] = None,
         status_provider: Optional[Callable[[], str]] = None,
+        clock_provider: Optional[Callable[[], dict]] = None,
         heading: str = "Catchup",
     ) -> None:
         pygame.init()
@@ -48,6 +50,7 @@ class GuiApp:
         self.on_frame = on_frame
         self.input_enabled = input_enabled or (lambda: True)
         self.status_provider = status_provider or (lambda: "")
+        self.clock_provider = clock_provider or (lambda: {})
         self.heading = heading
         self.pending: List[Cell] = []
         self.notice = ""
@@ -152,12 +155,47 @@ class GuiApp:
             message += "..."
         self.screen.blit(font.render(message, True, colour), (x, y))
 
+    def _draw_game_clocks(self) -> None:
+        """Draw live, independent clocks without changing engine accounting.
+
+        Provider format: {"W": (seconds_left, running), "B": (...)}.
+        An idle clock stays frozen; only the currently searching AI runs.
+        """
+        clocks = self.clock_provider()
+        if not clocks:
+            return
+        for i, colour in enumerate((WHITE, BLACK)):
+            if colour not in clocks:
+                continue
+            seconds, running = clocks[colour]
+            seconds = max(0.0, float(seconds))
+            # Tenths of seconds let short AI moves visibly change the clock.
+            shown_tenths = max(0, int(seconds * 10))
+            mins, deci = divmod(shown_tenths, 600)
+            secs, tenth = divmod(deci, 10)
+            remaining = f"{mins:02d}:{secs:02d}.{tenth}"
+            left = 520 + 235 * i
+            rect = pygame.Rect(left, 9, 220, 34)
+            background = (221, 244, 231) if running else (225, 232, 240)
+            if seconds <= 10:
+                background = (255, 216, 216)
+            pygame.draw.rect(self.screen, background, rect, border_radius=7)
+            pygame.draw.rect(self.screen, (67, 110, 84) if running else
+                             (145, 156, 168), rect, 2, border_radius=7)
+            caption = f"{'White' if colour == WHITE else 'Black'}  {remaining}"
+            if running:
+                caption += "  >"
+            ink = (141, 26, 30) if seconds <= 10 else (21, 45, 65)
+            label = self.font.render(caption, True, ink)
+            self.screen.blit(label, label.get_rect(center=rect.center))
+
     def _render(self) -> None:
         state = self.state
         draw_board(self.screen, state.board, HEX_SIZE, ORIGIN, self.small_font,
                    highlight_cells=self.pending)
         pygame.draw.rect(self.screen, (235, 242, 247), pygame.Rect(0, 0, 1000, 105))
         self._label(self.heading, self.title_font, (25, 43, 65), 22, 12)
+        self._draw_game_clocks()
         score_line = (f"To move: {'White' if state.to_move == WHITE else 'Black'}"
                       f"  |  Largest groups: W {state.scores[WHITE]}, B {state.scores[BLACK]}"
                       f"  |  Empty: {len(state.board.empty_cells())}")

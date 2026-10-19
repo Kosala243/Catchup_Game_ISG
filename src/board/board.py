@@ -1,4 +1,4 @@
-"""Validated 61-cell Catchup board supporting copy, place and undo."""
+"""61-cell Catchup board supporting copy, place and undo."""
 
 from typing import Dict, List, Optional
 
@@ -9,12 +9,10 @@ EMPTY: Optional[str] = None
 WHITE = "W"
 BLACK = "B"
 
-
 def other(colour: str) -> str:
     if colour not in (WHITE, BLACK):
         raise ValueError(f"invalid stone colour: {colour!r}")
     return BLACK if colour == WHITE else WHITE
-
 
 class Board:
     def __init__(self) -> None:

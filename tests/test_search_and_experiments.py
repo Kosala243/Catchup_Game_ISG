@@ -1,36 +1,55 @@
 """Focused regression suite: search correctness, experiments, dashboard and packaging."""
 
 # --- Exhaustive legal actions and evaluation ---
+import sys
 import math
-
-
 import random
-
-
 import pytest
-
+import time
+import csv
+import json
+import shutil
+import zipfile
+from threading import Event
+from pathlib import Path
 
 from src.board.board import BLACK, WHITE
-
-
-from src.engine.evaluation import WIN_VALUE, evaluate
-
-
+from src.engine.evaluation import WIN_VALUE, evaluate, position_features
 from src.engine.move_generation import legal_turns, ranked_candidate_turns, SearchTimeout
-
-
 from src.engine.search import SearchStats, alpha_beta, choose_move, iterative_deepening
-
-
 from src.game.state import GameState
 
+from src.engine.move_ordering import MoveOrdering
+from src.engine.transposition_table import (
+    Bound, TTEntry, TranspositionTable, occupancy_bits, position_key, turn_mask,
+)
+
+from src.board.groups import group_sizes, largest_group_size
+from src.game.rules import compare_group_lists
+from experiments.lab import CONFIGS, build_position, fingerprint
+from experiments.lab import benchmark
+from experiments.lab import play_game, run_matchups as run
+from experiments.lab import summarize
+
+from experiments.lab import EXPERIMENTS, get_experiment, run_experiment
+from src.engine import search
+from src.engine.player import AIPlayer
+
+from src.game.notation import parse_turn
+
+from tools.build_release import collect_files, create_release, verify_release, REQUIRED_FILES
+from tools.check_environment import check
+from tools.windows_smoke import validate_result
+
+from experiments.catchup_dashboard import (
+    W, H, fit_viewport, initial_window_size, mouse_to_canvas
+)
 
 def _engine_fingerprint(state):
     return (tuple(state.board.cells.items()), tuple(state.scores.items()), state.to_move,
             state.is_opening_move, state.score_increased_last_turn,
             tuple((e.player, tuple(e.cells), tuple(e.scores_before.items()), e.opponent_score_increased_before)
                   for e in state.history))
-
 
 def _engine_late_position(empties=4, seed=100):
     rng = random.Random(seed)
@@ -45,7 +64,6 @@ def _engine_late_position(empties=4, seed=100):
     assert len(state.board.empty_cells()) == empties
     return state
 
-
 def brute_force_minimax(state, depth, perspective):
     if depth == 0 or state.is_game_over():
         return evaluate(state, perspective)
@@ -59,7 +77,6 @@ def brute_force_minimax(state, depth, perspective):
             state.undo()
     return (max(values) if maximizing else min(values))
 
-
 @pytest.mark.parametrize('remaining', [1, 2, 3])
 def test_full_width_alpha_beta_matches_brute_force(remaining):
     state = _engine_late_position(empties=remaining, seed=110 + remaining)
@@ -71,7 +88,6 @@ def test_full_width_alpha_beta_matches_brute_force(remaining):
     assert tuple(turn) in {tuple(t) for t in legal_turns(state)}
     assert _engine_fingerprint(state) == before
 
-
 def test_alpha_beta_from_opponents_perspective():
     state = _engine_late_position(empties=3, seed=1002)
     before = _engine_fingerprint(state)
@@ -81,13 +97,11 @@ def test_alpha_beta_from_opponents_perspective():
     assert actual == expect
     assert _engine_fingerprint(state) == before
 
-
 def test_evaluation_is_antisymmetric_nonterminal():
     state = GameState()
     for turn in [[(4, 5)], [(0, 5), (1, 5)], [(4, 4), (3, 4)]]:
         state.apply_turn(turn)
     assert evaluate(state, WHITE) == -evaluate(state, BLACK)
-
 
 def test_selective_move_set_in_three_stone_position():
     state = GameState()
@@ -105,42 +119,7 @@ def test_selective_move_set_in_three_stone_position():
         state.undo()
         assert _engine_fingerprint(state) == before
 
-
 # --- Transposition keys, TT bounds, move ordering and exact search ---
-import math
-
-
-import random
-
-
-import time
-
-
-import pytest
-
-
-from src.board.board import WHITE, BLACK
-
-
-from src.engine.evaluation import evaluate
-
-
-from src.engine.move_generation import SearchTimeout, legal_turns, ranked_candidate_turns
-
-
-from src.engine.move_ordering import MoveOrdering
-
-
-from src.engine.search import SearchStats, alpha_beta, iterative_deepening
-
-
-from src.engine.transposition_table import (
-    Bound, TTEntry, TranspositionTable, occupancy_bits, position_key, turn_mask,
-)
-
-
-from src.game.state import GameState
-
 
 def state_snapshot(s):
     return (tuple(s.board.cells.items()), tuple(s.scores.items()), s.to_move,
@@ -321,49 +300,7 @@ def test_zero_time_returns_legal_fallback_without_state_change():
     assert stats.timed_out and stats.completed_depth == 0
     assert state_snapshot(s) == baseline
 
-
 # --- Full games, benchmarks and colour-swapped matches ---
-import csv
-
-
-import math
-
-
-import random
-
-
-import pytest
-
-
-from src.board.board import WHITE, BLACK
-
-
-from src.board.groups import group_sizes, largest_group_size
-
-
-from src.engine.move_generation import legal_turns
-
-
-from src.engine.search import SearchStats, alpha_beta
-
-
-from src.game.state import GameState
-
-
-from src.game.rules import compare_group_lists
-
-
-from experiments.lab import CONFIGS, build_position, fingerprint
-
-
-from experiments.lab import benchmark
-
-
-from experiments.lab import play_game, run_matchups as run
-
-
-from experiments.lab import summarize
-
 
 @pytest.mark.parametrize("seed", [0, 2, 4])
 def test_seeded_legal_position_is_reproducible(seed):
@@ -421,44 +358,6 @@ def test_illegal_search_move_is_reported_as_forfeit(monkeypatch):
 
 
 # --- Search-strength changes and endgame correctness ---
-import math
-
-
-import time
-
-
-import pytest
-
-
-from experiments.lab import build_position, fingerprint
-
-
-from experiments.lab import run_experiment
-
-
-from src.board.board import WHITE, BLACK
-
-
-from src.engine import search
-
-
-from src.engine.evaluation import evaluate, position_features
-
-
-from src.engine.move_generation import ranked_candidate_turns
-
-
-from src.engine.player import AIPlayer
-
-
-from src.engine.search import SearchStats, alpha_beta
-
-
-from src.engine.transposition_table import TranspositionTable, position_key
-
-
-from src.game.state import GameState
-
 
 def test_small_branch_does_not_force_one_stone():
     state = GameState()
@@ -466,7 +365,6 @@ def test_small_branch_does_not_force_one_stone():
     move = ranked_candidate_turns(state, max_branch=1)
     assert len(move) == 1 and 1 <= len(move[0]) <= 2
     state.apply_turn(move[0])
-
 
 def test_candidate_diversity_when_budget_allows_each_size():
     state = GameState()
@@ -476,7 +374,6 @@ def test_candidate_diversity_when_budget_allows_each_size():
     assert state.stones_allowed_this_turn() == 3
     moves = ranked_candidate_turns(state, max_branch=3)
     assert {len(turn) for turn in moves} == {1, 2, 3}
-
 
 @pytest.mark.parametrize('empty', [3, 5, 7])
 def test_automatic_exact_endgame_agrees_with_full_width(empty):
@@ -492,14 +389,12 @@ def test_automatic_exact_endgame_agrees_with_full_width(empty):
     assert fingerprint(state) == baseline
     state.apply_turn(turn)
 
-
 def test_transposition_key_captures_threshold_config():
     state = build_position(15, 8)
     assert position_key(state, state.to_move, 12, 14, False,
                         endgame_full_width_cells=7) != position_key(
                         state, state.to_move, 12, 14, False,
                         endgame_full_width_cells=0)
-
 
 def test_reused_table_has_root_hit_and_preserves_state():
     state = build_position(49, 7)
@@ -514,7 +409,6 @@ def test_reused_table_has_root_hit_and_preserves_state():
     assert stats.tt_hits > 0 and stats.tt_cutoffs > 0
     assert fingerprint(state) == baseline
 
-
 def test_player_per_game_caches_are_distinct():
     w1, w2 = AIPlayer(WHITE, 3), AIPlayer(WHITE, 3)
     assert w1._table is not w2._table
@@ -526,14 +420,12 @@ def test_player_per_game_caches_are_distinct():
     assert len(w1._table) > 0 or w1.clock.time_left() < 3
     assert len(w2._table) == 0
 
-
 def test_evaluation_components_and_antisymmetry():
     state = build_position(100, 12)
     features = position_features(state, state.to_move)
     assert features['largest'] >= 1
     assert features['best_growth'] >= 0
     assert evaluate(state, WHITE) == pytest.approx(-evaluate(state, BLACK))
-
 
 def test_dashboard_can_decode_extended_key(tmp_path):
     report = run_experiment(4, seed=35, empty_cells=7,
@@ -543,33 +435,11 @@ def test_dashboard_can_decode_extended_key(tmp_path):
     assert report['tt_summary']['size'] > 0
     assert len(report['tt_preview']) > 0
 
-
 # --- Diagnostic dashboard trace and TT sampling ---
-import csv
-
-
-import json
-
-
-from threading import Event
-
-
-import pytest
-
-
-from experiments.lab import EXPERIMENTS, get_experiment, run_experiment
-
-
-from experiments.lab import build_position, fingerprint
-
-
-from src.game.notation import parse_turn
-
 
 def demo(number, tmp_path, **kwargs):
     return run_experiment(number, seed=35, empty_cells=7, max_depth=2,
                           budget_seconds=3.0, output_dir=tmp_path, **kwargs)
-
 
 def test_four_buttons_use_phase6_configs():
     assert [(e.number, e.configuration, e.use_tt, e.use_ordering)
@@ -581,7 +451,6 @@ def test_four_buttons_use_phase6_configs():
     ]
     with pytest.raises(ValueError):
         get_experiment(5)
-
 
 @pytest.mark.parametrize("number", [1, 2, 3, 4])
 def test_each_experiment_reports_real_depths_and_legal_turns(number, tmp_path):
@@ -605,7 +474,6 @@ def test_each_experiment_reports_real_depths_and_legal_turns(number, tmp_path):
     with open(report["saved_csv"], newline="", encoding="utf-8") as stream:
         assert len(list(csv.DictReader(stream))) == 2
 
-
 @pytest.mark.parametrize("number", [3, 4])
 def test_tt_real_entries_and_bound_counts(number, tmp_path):
     r = demo(number, tmp_path)
@@ -621,7 +489,6 @@ def test_tt_real_entries_and_bound_counts(number, tmp_path):
         assert entry["to_move"] in ("W", "B")
         assert 1 <= entry["depth"] <= 2
 
-
 @pytest.mark.parametrize("number", [1, 2])
 def test_no_tt_is_truthfully_empty(number, tmp_path):
     r = demo(number, tmp_path)
@@ -629,14 +496,12 @@ def test_no_tt_is_truthfully_empty(number, tmp_path):
     assert r["tt_preview"] == []
     assert all(row["tt_hits"] == 0 for row in r["iterations"])
 
-
 def test_fixed_depth_values_agree_across_all_four_configs(tmp_path):
     values = []
     for number in range(1, 5):
         r = demo(number, tmp_path)
         values.append(r["iterations"][-1]["evaluation"])
     assert all(v == pytest.approx(values[0]) for v in values)
-
 
 def test_cancel_before_begin_returns_legal_fallback(tmp_path):
     stop = Event()
@@ -648,14 +513,12 @@ def test_cancel_before_begin_returns_legal_fallback(tmp_path):
     state = build_position(35, 7)
     state.apply_turn(parse_turn(r["result"]["best_turn"]))
 
-
 def test_zero_budget_is_not_falsely_reported_as_completed(tmp_path):
     r = run_experiment(4, seed=35, empty_cells=7, max_depth=3,
                        budget_seconds=0, output_dir=tmp_path)
     assert r["result"]["completed_depth"] == 0
     assert r["result"]["timed_out"]
     assert r["saved_csv"] is None
-
 
 @pytest.mark.parametrize("options", [
     {"empty_cells": 0}, {"empty_cells": 61}, {"max_depth": 0},
@@ -669,26 +532,16 @@ def test_reject_invalid_settings(options, tmp_path):
     with pytest.raises(ValueError):
         run_experiment(1, **defaults)
 
-
 def test_dashboard_module_imports_without_pygame_at_module_import():
     from experiments.catchup_dashboard import main, run
     assert callable(run) and callable(main)
 
-
 # --- Responsive window geometry and click mapping ---
-import pytest
-
-
-from experiments.catchup_dashboard import (
-    W, H, fit_viewport, initial_window_size, mouse_to_canvas
-)
-
 
 def test_desktop_auto_sizes_leave_room_for_dock():
     assert initial_window_size((1440, 900)) == (1280, 740)
     assert initial_window_size((1280, 800)) == (1200, 640)
     assert initial_window_size((1920, 1080)) == (1280, 865)
-
 
 @pytest.mark.parametrize("window_size", [(1280, 865), (1280, 740), (1000, 650), (720, 460), (1600, 900)])
 def test_aspect_ratio_and_roundtrip(window_size):
@@ -705,11 +558,9 @@ def test_aspect_ratio_and_roundtrip(window_size):
         assert abs(mapped[0] - virtual[0]) <= 2
         assert abs(mapped[1] - virtual[1]) <= 2
 
-
 def test_letterbox_click_does_not_activate_buttons():
     assert mouse_to_canvas((0, 0), (1600, 900)) is None
     assert mouse_to_canvas((1599, 899), (1600, 900)) is None
-
 
 def test_bottom_bar_is_present_in_fit():
     window_size = (1000, 650)
@@ -719,38 +570,13 @@ def test_bottom_bar_is_present_in_fit():
     hit = mouse_to_canvas(pt, window_size)
     assert hit is not None and 845 <= hit[1] <= 852
 
-
 def test_invalid_sizes():
     with pytest.raises(ValueError):
         fit_viewport((1280, 0))
     with pytest.raises(ValueError):
         initial_window_size((0, 900))
 
-
 # --- Release archive safety checks ---
-from pathlib import Path
-
-
-import shutil
-
-
-import sys
-
-
-import zipfile
-
-
-import pytest
-
-
-from tools.build_release import collect_files, create_release, verify_release, REQUIRED_FILES
-
-
-from tools.check_environment import check
-
-
-from tools.windows_smoke import validate_result
-
 
 @pytest.fixture
 def tiny_project(tmp_path):
@@ -766,7 +592,6 @@ def tiny_project(tmp_path):
     (root / "saves/current_game.json").write_text("{}", encoding="utf-8")
     return root
 
-
 def test_release_contains_required_runtime_and_excludes_user_data(tiny_project, tmp_path):
     output = tmp_path / "output.zip"
     result, count = create_release(tiny_project, output)
@@ -780,12 +605,10 @@ def test_release_contains_required_runtime_and_excludes_user_data(tiny_project, 
         assert "Catchup/SHA256SUMS.txt" in paths
         assert not any("saves/" in p or "tests/" in p for p in paths)
 
-
 def test_missing_critical_file_rejected(tiny_project, tmp_path):
     (tiny_project / "src/engine/search.py").unlink()
     with pytest.raises(FileNotFoundError):
         create_release(tiny_project, tmp_path / "bad.zip")
-
 
 def test_tampering_with_zip_is_detected(tiny_project, tmp_path):
     good = tmp_path / "good.zip"
@@ -800,7 +623,6 @@ def test_tampering_with_zip_is_detected(tiny_project, tmp_path):
     with pytest.raises(ValueError, match="Checksum mismatch"):
         verify_release(bad)
 
-
 def test_unsafe_or_unlisted_files_excluded(tiny_project):
     (tiny_project / "experiments").mkdir()
     (tiny_project / "experiments/results.csv").write_text("private data")
@@ -810,12 +632,10 @@ def test_unsafe_or_unlisted_files_excluded(tiny_project):
     assert "experiments/results.csv" not in rel
     assert "src/game/test_notes.txt" not in rel
 
-
 def test_result_parser_accepts_finished_game():
     output = "{'winner': 'W', 'final_scores': {'W': 30, 'B': 19}, 'turns': 26, 'white_time_left': 596.0, 'black_time_left': 597.0}\n"
     result = validate_result(output)
     assert result["winner"] == "W" and result["turns"] == 26
-
 
 # --- End-to-end checks of consolidated experiment entrypoints ---
 
@@ -830,14 +650,12 @@ def test_strength_comparison_uses_swapped_colours_and_finishes(tmp_path):
     assert all(g['termination'] == 'board_full' for g in games)
     assert path.is_file()
 
-
 def test_consolidated_cli_help_is_executable():
     import subprocess
     import sys
     completed = subprocess.run([sys.executable, '-m', 'experiments.lab', '--help'],
                                capture_output=True, text=True, timeout=10, check=True)
     assert all(cmd in completed.stdout for cmd in ('trace', 'benchmark', 'matchups', 'strength', 'summary', 'plots'))
-
 
 def test_consolidated_plotter_uses_actual_benchmark_data(tmp_path):
     pytest.importorskip('matplotlib')

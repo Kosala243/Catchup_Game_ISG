@@ -1,9 +1,15 @@
-"""Focused regression suite: Catchup rules, clocks, modes and persistence."""
+"""Testing: Catchup rules, clocks, modes and persistence."""
 
-# --- Board geometry, opening rules, groups, state, undo ---
+# Board geometry, opening rules, groups, state, undo
 import json
 import random
 import pytest
+import math
+import time
+import sys
+import csv
+from threading import Event
+
 from src.board.board import BLACK, WHITE, Board
 from src.board.coordinates import (
     all_cells, col_bounds, from_notation, is_valid, neighbours, to_notation
@@ -12,11 +18,29 @@ from src.board.groups import group_sizes, largest_group_size
 from src.game.notation import format_turn, parse_turn
 from src.game.rules import compare_group_lists, max_stones_allowed
 from src.game.state import GameState
-from src.persistence.save_load import _state_to_dict, load_game, save_game
+from src.persistence.save_load import _state_to_dict, load_game, save_game, save_tournament_session, load_tournament_session
+
+from src.engine.evaluation import WIN_VALUE, evaluate
+from src.engine.move_generation import legal_turns, ranked_candidate_turns, SearchTimeout
+from src.engine.search import SearchStats, alpha_beta, choose_move, iterative_deepening
+
+from src.engine.player import AIPlayer
+from src.engine.time_manager import Clock, allocate_time
+from src.engine import search
+from src.modes import tournament_mode
+
+from src.gui.ai_worker import AIWorker
+from src.modes.human_vs_ai import HumanGameController
+from src.modes.self_play import VisualSelfPlayController
+from src.modes.tournament_mode import undo_last_exchange
+
+from experiments.lab import CONFIGS, build_position, fingerprint
+from experiments.lab import benchmark
+from experiments.lab import play_game, run_matchups as run
+from experiments.lab import summarize
 
 def notation(*names):
     return [from_notation(name) for name in names]
-
 
 def test_board_shape_and_labelled_rows():
     cells = list(all_cells())
@@ -27,7 +51,6 @@ def test_board_shape_and_labelled_rows():
         assert all(is_valid(cell) for cell in notation(*labels.split()))
     for cell in cells:
         assert from_notation(to_notation(cell)) == cell
-
 
 def test_neighbour_geometry_reciprocal_and_six_corners():
     cells = set(all_cells())
@@ -43,12 +66,10 @@ def test_neighbour_geometry_reciprocal_and_six_corners():
     assert len(edges) == 156
     assert set(neighbours(from_notation("E5"))) == set(notation("F6", "F5", "E4", "D4", "D5", "E6"))
 
-
 @pytest.mark.parametrize("bad", ["", "A", "J5", "I1", "A9", "A0", "A10", "E-1", "5E", "  "])
 def test_invalid_notation_rejected(bad):
     with pytest.raises(ValueError):
         from_notation(bad)
-
 
 def test_groups_have_expected_connected_sizes():
     board = Board()
@@ -60,7 +81,6 @@ def test_groups_have_expected_connected_sizes():
     assert largest_group_size(board, WHITE) == 3
     assert group_sizes(board, BLACK) == [2]
     assert group_sizes(Board(), WHITE) == []
-
 
 def test_opening_and_catchup_bonus_from_full_game_state():
     state = GameState()
@@ -79,7 +99,6 @@ def test_opening_and_catchup_bonus_from_full_game_state():
     assert state.score_increased_last_turn
     assert state.stones_allowed_this_turn() == 3
 
-
 def test_no_bonus_if_opponent_did_not_increase_or_still_behind():
     state = GameState()
     state.apply_turn(notation("E5"))
@@ -89,14 +108,12 @@ def test_no_bonus_if_opponent_did_not_increase_or_still_behind():
     assert max_stones_allowed(mover_score=5, opponent_score=5, opponent_score_increased=True) == 3
     assert max_stones_allowed(mover_score=5, opponent_score=7, opponent_score_increased=False) == 2
 
-
 def test_tie_break_uses_all_groups_and_multiplicity():
     assert compare_group_lists([6, 5, 5, 3], [6, 5, 4, 3]) == 1
     assert compare_group_lists([3, 2, 2], [3, 2, 3]) == -1
     assert compare_group_lists([3, 2], [3, 2, 1]) == -1
     assert compare_group_lists([2, 2, 1], [1, 2, 2]) == 0
     assert compare_group_lists([], []) == 0
-
 
 def test_failed_multicell_turn_is_fully_atomic():
     state = GameState()
@@ -114,7 +131,6 @@ def test_failed_multicell_turn_is_fully_atomic():
             state.apply_turn(turn)
         assert _state_to_dict(state) == before
 
-
 def test_copy_is_independent_and_undo_recovers_pre_move_state():
     state = GameState()
     state.apply_turn(notation("E5"))
@@ -129,7 +145,6 @@ def test_copy_is_independent_and_undo_recovers_pre_move_state():
     cloned.history[-1].cells.append(from_notation("A1"))
     cloned.history[-1].scores_before[WHITE] = 99
     assert _state_to_dict(state) == expected
-
 
 def test_save_load_preserves_bonuses_undo_and_history(tmp_path):
     state = GameState()
@@ -148,7 +163,6 @@ def test_save_load_preserves_bonuses_undo_and_history(tmp_path):
     state.undo()
     assert _state_to_dict(restored) == _state_to_dict(state)
 
-
 def test_load_rejects_corrupt_or_inconsistent_saves(tmp_path):
     state = GameState()
     state.apply_turn(notation("E5"))
@@ -165,7 +179,6 @@ def test_load_rejects_corrupt_or_inconsistent_saves(tmp_path):
         with pytest.raises(ValueError):
             load_game(str(path))
         save_game(state, str(path))
-
 
 def test_random_complete_games_and_full_undo():
     rng = random.Random(20261016)
@@ -192,38 +205,11 @@ def test_random_complete_games_and_full_undo():
         with pytest.raises(IndexError):
             state.undo()
 
-
-# --- Exhaustive legal actions and evaluation ---
-import math
-
-
-import random
-
-
-import pytest
-
-
-from src.board.board import BLACK, WHITE
-
-
-from src.engine.evaluation import WIN_VALUE, evaluate
-
-
-from src.engine.move_generation import legal_turns, ranked_candidate_turns, SearchTimeout
-
-
-from src.engine.search import SearchStats, alpha_beta, choose_move, iterative_deepening
-
-
-from src.game.state import GameState
-
-
 def _engine_fingerprint(state):
     return (tuple(state.board.cells.items()), tuple(state.scores.items()), state.to_move,
             state.is_opening_move, state.score_increased_last_turn,
             tuple((e.player, tuple(e.cells), tuple(e.scores_before.items()), e.opponent_score_increased_before)
                   for e in state.history))
-
 
 def _engine_late_position(empties=4, seed=100):
     rng = random.Random(seed)
@@ -238,7 +224,6 @@ def _engine_late_position(empties=4, seed=100):
     assert len(state.board.empty_cells()) == empties
     return state
 
-
 def brute_force_minimax(state, depth, perspective):
     if depth == 0 or state.is_game_over():
         return evaluate(state, perspective)
@@ -252,7 +237,6 @@ def brute_force_minimax(state, depth, perspective):
             state.undo()
     return (max(values) if maximizing else min(values))
 
-
 def test_exact_61_openings_and_does_not_mutate():
     state = GameState()
     before = _engine_fingerprint(state)
@@ -260,7 +244,6 @@ def test_exact_61_openings_and_does_not_mutate():
     assert len(moves) == 61
     assert all(len(t) == 1 for t in moves)
     assert _engine_fingerprint(state) == before
-
 
 def test_three_stone_turn_counts_all_sizes():
     state = GameState()
@@ -273,7 +256,6 @@ def test_three_stone_turn_counts_all_sizes():
     n = len(state.board.empty_cells())
     assert len(list(legal_turns(state))) == n + math.comb(n, 2) + math.comb(n, 3)
 
-
 def test_terminal_tiebreak_used_in_evaluator():
     state = _engine_late_position(empties=1)
     assert not state.is_game_over()
@@ -283,7 +265,6 @@ def test_terminal_tiebreak_used_in_evaluator():
     expected = 0.0 if winner is None else WIN_VALUE if winner == WHITE else -WIN_VALUE
     assert evaluate(state, WHITE) == expected
     assert evaluate(state, WHITE) == -evaluate(state, BLACK)
-
 
 def test_timeout_inside_recursion_still_undoes(monkeypatch):
     import src.engine.search as search_module
@@ -299,42 +280,7 @@ def test_timeout_inside_recursion_still_undoes(monkeypatch):
         alpha_beta(state, 3, -math.inf, math.inf, WHITE)
     assert _engine_fingerprint(state) == before
 
-
-# --- Whole-game clocks, autosave and restart safety ---
-import json
-
-
-import math
-
-
-import time
-
-
-import pytest
-
-
-from src.board.board import WHITE, BLACK
-
-
-from src.engine.player import AIPlayer
-
-
-from src.engine.time_manager import Clock, allocate_time
-
-
-from src.engine import search
-
-
-from src.game.state import GameState
-
-
-from src.persistence.save_load import (
-    load_game, save_game, save_tournament_session, load_tournament_session,
-)
-
-
-from src.modes import tournament_mode
-
+# Whole-game clocks, autosave and restart safety
 
 class FakeTime:
     def __init__(self, value=1000.0):
@@ -346,13 +292,11 @@ class FakeTime:
     def advance(self, seconds):
         self.value += seconds
 
-
 def _clock_state_snapshot(s):
     return (tuple(s.board.cells.items()), tuple(s.scores.items()), s.to_move,
             s.score_increased_last_turn, s.is_opening_move,
             tuple((e.player, tuple(e.cells), tuple(e.scores_before.items()),
                    e.opponent_score_increased_before) for e in s.history))
-
 
 def test_clock_starts_at_correct_budget_and_only_charges_thinking():
     t = FakeTime()
@@ -365,7 +309,6 @@ def test_clock_starts_at_correct_budget_and_only_charges_thinking():
     assert clock.stop_move() == pytest.approx(1.25)
     t.advance(999)
     assert clock.time_left() == pytest.approx(598.75)
-
 
 def test_clock_multiple_turns_clamps_to_zero_without_double_charging():
     t = FakeTime()
@@ -382,7 +325,6 @@ def test_clock_multiple_turns_clamps_to_zero_without_double_charging():
     with pytest.raises(TimeoutError):
         clock.start_move()
 
-
 def test_clock_rejects_invalid_construction():
     for value in (float('nan'), float('inf'), -3, 0, True):
         with pytest.raises(ValueError):
@@ -392,14 +334,12 @@ def test_clock_rejects_invalid_construction():
     with pytest.raises(ValueError):
         Clock(50, remaining_seconds=-1)
 
-
 def test_clock_rejects_double_start():
     clock = Clock(100)
     clock.start_move()
     with pytest.raises(RuntimeError):
         clock.start_move()
     clock.stop_move()
-
 
 @pytest.mark.parametrize('time_left,moves', [
     (600.0, 20), (40.0, 8), (5.0, 2), (0.01, 1), (0.0, 1)
@@ -409,7 +349,6 @@ def test_time_budget_nonnegative_and_below_remaining(time_left, moves):
     assert 0 <= budget <= time_left
     if time_left > 0:
         assert budget < time_left
-
 
 def test_player_clock_stops_even_when_search_raises(monkeypatch):
     state = GameState()
@@ -427,7 +366,6 @@ def test_player_clock_stops_even_when_search_raises(monkeypatch):
     assert player.clock.time_left() == 27.0
     assert not player.clock.is_running
 
-
 def test_tournament_session_restores_board_history_and_remaining_time(tmp_path):
     state = GameState()
     state.apply_turn([(4, 5)])
@@ -443,7 +381,6 @@ def test_tournament_session_restores_board_history_and_remaining_time(tmp_path):
     assert len(restored.history) == 1
     assert len(state.history) == 2
 
-
 def test_tournament_crash_reservation_charged_exactly_once(tmp_path):
     path = str(tmp_path / 'session.json')
     state = GameState()
@@ -455,7 +392,6 @@ def test_tournament_crash_reservation_charged_exactly_once(tmp_path):
     _, loaded_again = load_tournament_session(path, WHITE, max_total_seconds=100)
     assert loaded_again.time_left() == 57.5
 
-
 def test_plain_game_save_remains_backward_compatible(tmp_path):
     state = GameState()
     state.apply_turn([(4, 5)])
@@ -465,13 +401,11 @@ def test_plain_game_save_remains_backward_compatible(tmp_path):
     with pytest.raises(ValueError, match='no tournament clock'):
         load_tournament_session(path, WHITE)
 
-
 def test_resume_wrong_colour_is_rejected(tmp_path):
     path = str(tmp_path / 'session.json')
     save_tournament_session(GameState(), path, WHITE, Clock(600))
     with pytest.raises(ValueError, match='colour'):
         load_tournament_session(path, BLACK)
-
 
 @pytest.mark.parametrize('field,value', [
     ('remaining_seconds', 999),
@@ -489,7 +423,6 @@ def test_malformed_or_inflated_saved_clock_rejected(tmp_path, field, value):
     open(path, 'w').write(json.dumps(data))
     with pytest.raises(ValueError):
         load_tournament_session(path, WHITE)
-
 
 def test_tournament_autosave_and_resume_integration(tmp_path, monkeypatch):
     """Start as Black, type White opening, then stop at next prompt and resume."""
@@ -520,7 +453,6 @@ def test_tournament_autosave_and_resume_integration(tmp_path, monkeypatch):
     assert _clock_state_snapshot(saved2) == _clock_state_snapshot(saved)
     assert clock2.time_left() == pytest.approx(initial_time_left, abs=0.005)
 
-
 def test_time_budget_in_real_search_is_respected_for_short_game():
     state = GameState()
     player = AIPlayer(WHITE, total_seconds=0.1)
@@ -530,40 +462,7 @@ def test_time_budget_in_real_search_is_respected_for_short_game():
     assert time.monotonic() - begin < 1.0
     assert player.clock.time_left() >= 0.0
 
-
-# --- GUI worker, human input and tournament interactions ---
-import sys
-
-
-import time
-
-
-from threading import Event
-
-
-import pytest
-
-
-from src.board.board import BLACK, WHITE
-
-
-from src.engine.player import AIPlayer
-
-
-from src.game.state import GameState
-
-
-from src.gui.ai_worker import AIWorker
-
-
-from src.modes.human_vs_ai import HumanGameController
-
-
-from src.modes.self_play import VisualSelfPlayController
-
-
-from src.modes.tournament_mode import undo_last_exchange
-
+# --- GUI human input and tournament interactions ---
 
 def wait_until(predicate, timeout=3.0):
     end = time.monotonic() + timeout
@@ -573,10 +472,8 @@ def wait_until(predicate, timeout=3.0):
         time.sleep(0.005)
     raise AssertionError("background worker did not finish within timeout")
 
-
 def _mock_first_legal_move(self, state, estimated_moves_left=None):
     return [state.board.empty_cells()[0]]
-
 
 def test_worker_does_not_mutate_live_state(monkeypatch):
     def choose(self, snapshot, estimated_moves_left=None):
@@ -595,7 +492,6 @@ def test_worker_does_not_mutate_live_state(monkeypatch):
     assert state.board.cells == original_cells
     assert not worker.busy and worker.poll() is None
 
-
 def test_worker_discard_ignores_stale_move(monkeypatch):
     gate = Event()
     started = Event()
@@ -612,7 +508,6 @@ def test_worker_discard_ignores_stale_move(monkeypatch):
     wait_until(lambda: worker._finished.is_set())
     assert worker.poll().discarded
 
-
 def test_human_white_confirm_and_undo_reverts_human_turn():
     controller = HumanGameController(WHITE)
     assert controller.can_input()
@@ -623,7 +518,6 @@ def test_human_white_confirm_and_undo_reverts_human_turn():
     assert len(controller.state.history) == 0
     assert controller.state.to_move == WHITE
     assert controller.can_input()
-
 
 def test_human_black_does_not_undo_ais_opening(monkeypatch):
     monkeypatch.setattr(AIPlayer, "choose_move", _mock_first_legal_move)
@@ -641,7 +535,6 @@ def test_human_black_does_not_undo_ais_opening(monkeypatch):
     assert len(controller.state.history) == 1
     assert controller.state.to_move == BLACK
 
-
 def test_human_undo_cancels_pending_ai_move(monkeypatch):
     gate = Event()
     def block_choose(self, snapshot, estimated_moves_left=None):
@@ -658,7 +551,6 @@ def test_human_undo_cancels_pending_ai_move(monkeypatch):
     controller.update()
     assert len(controller.state.history) == 0
     assert controller.state.to_move == WHITE
-
 
 def test_human_restart_discards_old_result(monkeypatch):
     gate = Event()
@@ -679,7 +571,6 @@ def test_human_restart_discards_old_result(monkeypatch):
     controller.update()
     assert len(controller.state.history) == 1
 
-
 def test_visual_controller_pause_resume_undo_and_restart(monkeypatch):
     monkeypatch.setattr(AIPlayer, "choose_move", _mock_first_legal_move)
     controller = VisualSelfPlayController(delay_ms=0)
@@ -697,7 +588,6 @@ def test_visual_controller_pause_resume_undo_and_restart(monkeypatch):
     controller.reset()
     assert not controller.paused and len(controller.state.history) == 0
 
-
 def test_tournament_undo_exchange_both_colours():
     state = GameState()
     assert not undo_last_exchange(state, BLACK)
@@ -714,7 +604,6 @@ def test_tournament_undo_exchange_both_colours():
     assert undo_last_exchange(state, WHITE)
     assert len(state.history) == 1 and state.to_move == BLACK
 
-
 def test_cli_dispatch_gui_selfplay(monkeypatch):
     import main
     calls = []
@@ -722,7 +611,6 @@ def test_cli_dispatch_gui_selfplay(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["main.py", "selfplay", "--gui", "--delay-ms", "75"])
     main.main()
     assert calls == [{"think_seconds": 600.0, "delay_ms": 75}]
-
 
 def test_pygame_smoke_if_installed(monkeypatch):
     pygame = pytest.importorskip("pygame")
@@ -741,49 +629,7 @@ def test_pygame_smoke_if_installed(monkeypatch):
     finally:
         app.quit()
 
-
-# --- Full games, benchmarks and colour-swapped matches ---
-import csv
-
-
-import math
-
-
-import random
-
-
-import pytest
-
-
-from src.board.board import WHITE, BLACK
-
-
-from src.board.groups import group_sizes, largest_group_size
-
-
-from src.engine.move_generation import legal_turns
-
-
-from src.engine.search import SearchStats, alpha_beta
-
-
-from src.game.state import GameState
-
-
-from src.game.rules import compare_group_lists
-
-
-from experiments.lab import CONFIGS, build_position, fingerprint
-
-
-from experiments.lab import benchmark
-
-
-from experiments.lab import play_game, run_matchups as run
-
-
-from experiments.lab import summarize
-
+# Full games, benchmarks and colour-swapped matches
 
 @pytest.mark.parametrize("seed", [9, 17, 23, 41, 73])
 def test_full_random_games_respect_rules_and_undo(seed):
@@ -814,4 +660,3 @@ def test_full_random_games_respect_rules_and_undo(seed):
         state.undo()
         assert fingerprint(state) == expected
     assert not state.history and state.to_move == WHITE
-
