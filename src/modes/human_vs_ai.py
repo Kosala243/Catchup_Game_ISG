@@ -26,6 +26,8 @@ class HumanGameController:
         self.state = GameState()
         self.ai = AIPlayer(other(self.human_colour), self.think_seconds)
         self.error = None
+        self.last_search = None
+        self.search_history = []
         self.message = "New game. White plays first." if first else "New game started."
 
     def can_input(self) -> bool:
@@ -47,12 +49,16 @@ class HumanGameController:
             self.message = "No human turn to undo."
             return
         self.worker.discard()
+        self.last_search = None
         while len(self.state.history) > index:
             self.state.undo()
         self.error = None
         self.message = "Undid your last turn and any AI reply (time is not refunded)."
 
     def update(self) -> None:
+        for event in self.worker.drain_progress():
+            self.last_search = dict(event, side=self.ai.colour)
+            self.search_history.append(self.last_search)
         outcome = self.worker.poll()
         if outcome is not None and not outcome.discarded:
             if outcome.error is not None:
@@ -67,6 +73,9 @@ class HumanGameController:
                 and not self.state.is_game_over()
                 and self.state.to_move == self.ai.colour):
             self.worker.start(self.ai, self.state)
+
+    def diagnostics(self) -> dict:
+        return {self.ai.colour: self.last_search} if self.last_search is not None else {}
 
     def status(self) -> str:
         if self.error:
@@ -122,6 +131,7 @@ def run(human_colour: str = WHITE, think_seconds: float = 600.0) -> None:
         state_provider=lambda: controller.state,
         input_enabled=controller.can_input, status_provider=controller.status,
         clock_provider=clock_values,
+        search_provider=controller.diagnostics,
         heading=f"Catchup | You: {'White' if human_colour == WHITE else 'Black'}",
     )
     try:

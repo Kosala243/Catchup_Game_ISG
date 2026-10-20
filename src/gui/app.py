@@ -33,6 +33,7 @@ class GuiApp:
         input_enabled: Optional[Callable[[], bool]] = None,
         status_provider: Optional[Callable[[], str]] = None,
         clock_provider: Optional[Callable[[], dict]] = None,
+        search_provider: Optional[Callable[[], dict]] = None,
         heading: str = "Catchup",
     ) -> None:
         pygame.init()
@@ -51,6 +52,8 @@ class GuiApp:
         self.input_enabled = input_enabled or (lambda: True)
         self.status_provider = status_provider or (lambda: "")
         self.clock_provider = clock_provider or (lambda: {})
+        self.search_provider = search_provider or (lambda: {})
+        self.show_diagnostics = True
         self.heading = heading
         self.pending: List[Cell] = []
         self.notice = ""
@@ -128,6 +131,8 @@ class GuiApp:
                 self._restart()
             elif event.key == pygame.K_SPACE:
                 self._pause()
+            elif event.key == pygame.K_d:
+                self.show_diagnostics = not self.show_diagnostics
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 3:
                 if self.pending:
@@ -189,6 +194,45 @@ class GuiApp:
             label = self.font.render(caption, True, ink)
             self.screen.blit(label, label.get_rect(center=rect.center))
 
+    def _draw_diagnostics(self) -> None:
+        """Display only actual completed-depth events from the current game."""
+        if not self.show_diagnostics:
+            return
+        data = self.search_provider()
+        rect = pygame.Rect(776, 122, 212, 515)
+        pygame.draw.rect(self.screen, (241, 246, 250), rect, border_radius=9)
+        pygame.draw.rect(self.screen, (172, 190, 204), rect, 1, border_radius=9)
+        heading = self.font.render("LIVE AI SEARCH   [D]", True, (23, 53, 75))
+        self.screen.blit(heading, (rect.x + 10, rect.y + 10))
+        y = rect.y + 42
+        for side in (WHITE, BLACK):
+            row = data.get(side)
+            caption = ("WHITE" if side == WHITE else "BLACK") + " AI"
+            self.screen.blit(self.font.render(caption, True, (27, 77, 108)), (rect.x + 10, y))
+            y += 23
+            if row is None:
+                lines = ["No completed search yet"]
+            else:
+                count = row.get("total", {})
+                lines = [
+                    "Completed depth: " + str(row.get("depth", "?")),
+                    "Best: " + str(row.get("best_turn", "?")),
+                    "Eval: " + f'{row.get("evaluation", 0):+.2f}',
+                    "Nodes (total): " + str(count.get("nodes", 0)),
+                    "Cutoffs total: " + str(count.get("cutoffs", 0)),
+                    "TT hits/stores: " + str(count.get("tt_hits", 0)) + "/" + str(count.get("tt_stores", 0)),
+                    "TT size: " + str(row.get("tt_size", 0)),
+                    "Extensions: " + str(count.get("tactical_extensions", 0)),
+                    "Ordering/TT: " + ("ON" if row.get("use_ordering") else "OFF") + "/" + ("ON" if row.get("use_tt") else "OFF"),
+                ]
+            for item in lines:
+                label = self.small_font.render(item, True, (45, 67, 87))
+                self.screen.blit(label, (rect.x + 12, y))
+                y += 20
+            y += 12
+        foot = self.small_font.render("Last completed depth only", True, (97, 111, 125))
+        self.screen.blit(foot, (rect.x + 10, rect.bottom - 25))
+
     def _render(self) -> None:
         state = self.state
         draw_board(self.screen, state.board, HEX_SIZE, ORIGIN, self.small_font,
@@ -196,6 +240,7 @@ class GuiApp:
         pygame.draw.rect(self.screen, (235, 242, 247), pygame.Rect(0, 0, 1000, 105))
         self._label(self.heading, self.title_font, (25, 43, 65), 22, 12)
         self._draw_game_clocks()
+        self._draw_diagnostics()
         score_line = (f"To move: {'White' if state.to_move == WHITE else 'Black'}"
                       f"  |  Largest groups: W {state.scores[WHITE]}, B {state.scores[BLACK]}"
                       f"  |  Empty: {len(state.board.empty_cells())}")

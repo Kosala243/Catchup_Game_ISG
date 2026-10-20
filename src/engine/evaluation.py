@@ -1,12 +1,41 @@
+"""Catchup heuristic for nonterminal search nodes.
+
+Largest connected group remains the most important feature, but potential
+one-cell mergers and opponent threats also matter. Terminal outcomes ALWAYS
+use the official lexicographic group comparison, not this heuristic.
 """
-- Catchup heuristic for nonterminal search nodes.
-"""
+from contextlib import contextmanager
+from contextvars import ContextVar
 from ..board.board import BLACK, WHITE, other
 from ..board.coordinates import neighbours
 from ..game.state import GameState
 from .move_generation import _component_map
 
 WIN_VALUE = 1_000_000.0
+
+# One feature group is disabled at a time for controlled ablation tests.
+ABLATION_VARIANTS = (
+    "full", "no_merge_growth", "no_bridges", "no_contested_frontier",
+    "no_stage_weighting", "no_three_stone_bonus",
+)
+_ACTIVE_VARIANT = ContextVar("catchup_evaluation_variant", default="full")
+
+
+def active_evaluation_variant() -> str:
+    return _ACTIVE_VARIANT.get()
+
+
+@contextmanager
+def evaluation_variant(name: str):
+    if name not in ABLATION_VARIANTS:
+        raise ValueError(f"Unknown evaluator variant {name!r}")
+    token = _ACTIVE_VARIANT.set(name)
+    try:
+        yield
+    finally:
+        _ACTIVE_VARIANT.reset(token)
+
+
 
 def _features_from_maps(state: GameState, colour: str, mapping: dict, sizes: list, enemy_map: dict) -> dict:
     board = state.board
@@ -37,25 +66,33 @@ def _features_from_maps(state: GameState, colour: str, mapping: dict, sizes: lis
         "contested_frontier": threatened_connections,
     }
 
+
 def position_features(state: GameState, colour: str) -> dict:
+    """Human-readable components for debugging and comparisons."""
     mapping, sizes = _component_map(state, colour)
     enemy_map, _ = _component_map(state, other(colour))
     return _features_from_maps(state, colour, mapping, sizes, enemy_map)
 
+
 def _weighted_features(state: GameState, p: dict) -> float:
+    variant = active_evaluation_variant()
     progress = (61 - len(state.board.empty_cells())) / 61.0
+    if variant == "no_stage_weighting":
+        progress = 0.0
     return (
         (12.0 + 7.0 * progress) * p["largest"]
         + (3.5 + 1.0 * progress) * p["second"]
         + 0.5 * p["stones"]
         + 0.30 * p["frontier"]
-        + 1.8 * p["best_growth"]
-        + 1.2 * min(p["bridge_cells"], 6)
-        + 0.25 * p["contested_frontier"]
+        + (0.0 if variant == "no_merge_growth" else 1.8 * p["best_growth"])
+        + (0.0 if variant == "no_bridges" else 1.2 * min(p["bridge_cells"], 6))
+        + (0.0 if variant == "no_contested_frontier" else 0.25 * p["contested_frontier"])
     )
+
 
 def _position_features(state: GameState, colour: str) -> float:
     return _weighted_features(state, position_features(state, colour))
+
 
 def evaluate(state: GameState, colour: str) -> float:
     if colour not in (WHITE, BLACK):
@@ -69,12 +106,15 @@ def evaluate(state: GameState, colour: str) -> float:
     own = _features_from_maps(state, colour, own_map, own_sizes, foe_map)
     foe = _features_from_maps(state, opponent, foe_map, foe_sizes, own_map)
     value = _weighted_features(state, own) - _weighted_features(state, foe)
-    # The active player can place 3 only if the *last* score increase enabled it.
-    if state.stones_allowed_this_turn() == 3:
+    # The active player can place 3 only if the *last* score increase enabled
+    # it. Reward the side with the opportunity, not the one that granted it.
+    if active_evaluation_variant() != "no_three_stone_bonus" and state.stones_allowed_this_turn() == 3:
         value += 6.5 if state.to_move == colour else -6.5
     return value
 
+
 def describe_evaluation(state: GameState, colour: str) -> dict:
+    """Read-only diagnostic; evaluate() remains the canonical search score."""
     if colour not in (WHITE, BLACK):
         raise ValueError(f"invalid colour: {colour!r}")
     return {"perspective": colour, "own": position_features(state, colour),

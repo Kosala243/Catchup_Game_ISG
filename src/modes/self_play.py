@@ -28,6 +28,8 @@ class VisualSelfPlayController:
         self.pending: AIResult | None = None
         self.paused = False
         self.error = None
+        self.last_search = {WHITE: None, BLACK: None}
+        self.search_history = {WHITE: [], BLACK: []}
         self.next_at = time.monotonic() + self.delay_seconds
         self.message = "New visual self-play game." if first else "Self-play restarted."
 
@@ -43,6 +45,8 @@ class VisualSelfPlayController:
         self.pending = None
         if self.state.history:
             self.state.undo()
+            # The undone move no longer belongs to this board's search trace.
+            self.last_search = {WHITE: None, BLACK: None}
             self.error = None
             self.message = "Last AI turn undone. Clock time is not refunded."
             self.next_at = time.monotonic() + self.delay_seconds
@@ -52,6 +56,11 @@ class VisualSelfPlayController:
             self.message = "No turn to undo."
 
     def update(self) -> None:
+        for event in self.worker.drain_progress():
+            side = self.state.to_move
+            entry = dict(event, side=side)
+            self.last_search[side] = entry
+            self.search_history[side].append(entry)
         outcome = self.worker.poll()
         if outcome is not None and not outcome.discarded:
             self.pending = outcome
@@ -73,6 +82,9 @@ class VisualSelfPlayController:
                 and not self.state.is_game_over()
                 and time.monotonic() >= self.next_at):
             self.worker.start(self.players[self.state.to_move], self.state)
+
+    def diagnostics(self) -> dict:
+        return {key: value for key, value in self.last_search.items() if value is not None}
 
     def status(self) -> str:
         if self.error:
@@ -105,6 +117,7 @@ def run(think_seconds: float = 600.0, delay_ms: int = 400) -> None:
         on_pause=controller.toggle_pause, state_provider=lambda: controller.state,
         input_enabled=lambda: False, status_provider=controller.status,
         clock_provider=clock_values,
+        search_provider=controller.diagnostics,
         heading="Catchup | AI vs AI",
     )
     try:

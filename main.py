@@ -1,4 +1,4 @@
-"""Catchup launcher: human GUI, headless/visual self-play and tournament relay."""
+"""Catchup launcher: GUI mode selector plus all existing command-line modes."""
 import argparse
 
 from src.board.board import BLACK, WHITE
@@ -7,25 +7,41 @@ from src.modes import human_vs_ai, self_play, tournament_mode
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Catchup game program")
-    sub = parser.add_subparsers(dest="mode", required=True)
+    sub = parser.add_subparsers(dest="mode")
 
     gui = sub.add_parser("gui", help="Human versus AI in a pygame window")
     gui.add_argument("--human-colour", choices=[WHITE, BLACK], default=WHITE)
-    gui.add_argument("--think-seconds", type=float, default=600.0,
-                     help="AI total thinking budget (for local demo/testing)")
+    gui.add_argument("--think-seconds", type=float, default=600.0)
 
     tournament = sub.add_parser("tournament", help="Terminal tournament relay")
     tournament.add_argument("--colour", choices=[WHITE, BLACK], required=True)
     tournament.add_argument("--resume", action="store_true")
 
     selfplay = sub.add_parser("selfplay", help="AI versus AI, headless or visual")
-    selfplay.add_argument("--gui", action="store_true", help="Show animated pygame board")
-    selfplay.add_argument("--think-seconds", type=float, default=600.0,
-                          help="Per-AI total thinking budget (for demo/testing)")
-    selfplay.add_argument("--delay-ms", type=int, default=400,
-                          help="Delay between AI turns in visual mode (default: 400ms)")
+    selfplay.add_argument("--gui", action="store_true")
+    selfplay.add_argument("--think-seconds", type=float, default=600.0)
+    selfplay.add_argument("--delay-ms", type=int, default=400)
 
     args = parser.parse_args()
+    if args.mode is None:
+        from src.gui.launcher import run as menu
+        selected = menu()
+        if not selected:
+            return
+        if selected["mode"] == "lab":
+            from experiments.catchup_dashboard import run as dashboard
+            dashboard()
+            return
+        if selected["mode"] == "gui":
+            human_vs_ai.run(human_colour=selected["colour"],
+                            think_seconds=selected["think_seconds"])
+        elif selected["mode"] == "selfplay":
+            self_play.run(think_seconds=selected["think_seconds"])
+        elif selected["mode"] == "tournament":
+            print("Tournament uses the terminal where you started this menu.")
+            tournament_mode.run(my_colour=selected["colour"])
+        return
+
     if args.mode in ("gui", "selfplay") and not (0 < args.think_seconds <= 600):
         parser.error("--think-seconds must be greater than 0 and at most 600")
     if args.mode == "gui":

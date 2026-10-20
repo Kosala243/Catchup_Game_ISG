@@ -21,6 +21,7 @@ from threading import Event
 from typing import Callable, Optional, Tuple
 
 from src.board.board import BLACK, WHITE, other
+from src.engine.evaluation import ABLATION_VARIANTS, evaluation_variant, evaluate
 from src.engine.move_generation import SearchTimeout
 from src.engine.move_ordering import MoveOrdering
 from src.engine.search import SearchStats, alpha_beta, iterative_deepening
@@ -627,6 +628,8 @@ class ComparisonProfile:
     name: str
     depth: int
     branch: int
+    variant: str = 'full'
+    extensions: int = 0
 
 
 def make_comparison_position(seed: int, start_empty_cells: int = 41,
@@ -679,6 +682,7 @@ def compare_one_game(root: GameState, seed: int, position_seed: int,
     ordering = {c: MoveOrdering() for c in (WHITE, BLACK)}
     nodes = {c: 0 for c in (WHITE, BLACK)}
     depths = {c: [] for c in (WHITE, BLACK)}
+    extensions_used = {c: 0 for c in (WHITE, BLACK)}
     termination = 'board_full'
 
     while not state.is_game_over():
@@ -693,14 +697,17 @@ def compare_one_game(root: GameState, seed: int, position_seed: int,
         before = fingerprint(state)
         clocks[side].start_move()
         try:
-            turn = iterative_deepening(
-                state, allowance, side,
-                max_depth=profile.depth, max_branch=profile.branch,
-                max_cells=max_cells,
-                endgame_full_width_cells=endgame_cells,
-                table=tables[side], ordering=ordering[side], stats=stats,
-                use_tt=True, use_ordering=True,
-            )
+            # Scoped inside the search thread; each profile uses its own TT.
+            with evaluation_variant(profile.variant):
+                turn = iterative_deepening(
+                    state, allowance, side,
+                    max_depth=profile.depth, max_branch=profile.branch,
+                    max_cells=max_cells,
+                    endgame_full_width_cells=endgame_cells,
+                    table=tables[side], ordering=ordering[side], stats=stats,
+                    use_tt=True, use_ordering=True,
+                    tactical_extensions=profile.extensions,
+                )
         except Exception as error:
             termination = f'{side}: search error ({type(error).__name__}: {error})'
             break
@@ -718,6 +725,7 @@ def compare_one_game(root: GameState, seed: int, position_seed: int,
             termination = f'{side}: illegal turn ({error})'
             break
         nodes[side] += stats.nodes
+        extensions_used[side] += stats.tactical_extensions
         depths[side].append(stats.completed_depth)
 
     if termination == 'board_full':
@@ -749,6 +757,8 @@ def compare_one_game(root: GameState, seed: int, position_seed: int,
         'white_seconds_used': round(seconds - clocks[WHITE].time_left(), 6),
         'black_seconds_used': round(seconds - clocks[BLACK].time_left(), 6),
         'white_nodes': nodes[WHITE], 'black_nodes': nodes[BLACK],
+        'white_extensions': extensions_used[WHITE], 'black_extensions': extensions_used[BLACK],
+        'white_evaluation_variant': white.variant, 'black_evaluation_variant': black.variant,
         'white_mean_completed_depth': (round(mean(depths[WHITE]), 3) if depths[WHITE] else 0),
         'black_mean_completed_depth': (round(mean(depths[BLACK]), 3) if depths[BLACK] else 0),
     }
@@ -760,6 +770,8 @@ def compare_profiles(*, pairs: int = 10, seconds: float = 10.0,
                      depth_a: int = 4, depth_b: int = 6,
                      branch_a: int = 12, branch_b: int = 12,
                      max_cells: int = 14, endgame_cells: int = 7,
+                     variant_a: str = 'full', variant_b: str = 'full',
+                     extensions_a: int = 0, extensions_b: int = 0,
                      output: str = 'experiments/results/compare.csv') -> list[dict]:
     """Isolate depth or branching while holding all other engine settings fixed.
 
@@ -770,7 +782,8 @@ def compare_profiles(*, pairs: int = 10, seconds: float = 10.0,
     for name, value in (('pairs', pairs), ('seed_start', seed_start),
                         ('depth_a', depth_a), ('depth_b', depth_b),
                         ('branch_a', branch_a), ('branch_b', branch_b),
-                        ('max_cells', max_cells), ('endgame_cells', endgame_cells)):
+                        ('max_cells', max_cells), ('endgame_cells', endgame_cells),
+                        ('extensions_a', extensions_a), ('extensions_b', extensions_b)):
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError(f'{name} must be an integer')
     if min(pairs, depth_a, depth_b, branch_a, branch_b, max_cells) < 1:
@@ -780,14 +793,28 @@ def compare_profiles(*, pairs: int = 10, seconds: float = 10.0,
     if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) \
             or not math.isfinite(seconds) or not 0 < seconds <= 600:
         raise ValueError('seconds must be finite and in (0, 600]')
-    if depth_a == depth_b and branch_a == branch_b:
-        raise ValueError('A and B must differ in maximum depth or maximum branch')
+    if variant_a not in ABLATION_VARIANTS or variant_b not in ABLATION_VARIANTS:
+        raise ValueError('Unknown evaluator variant; choices: ' + ', '.join(ABLATION_VARIANTS))
+    if not 0 <= extensions_a <= 2 or not 0 <= extensions_b <= 2:
+        raise ValueError('Extensions must be from 0 to 2')
+    if (depth_a, branch_a, variant_a, extensions_a) == (depth_b, branch_b, variant_b, extensions_b):
+        raise ValueError('Comparison profiles must differ in at least one setting')
     if not str(output).strip():
         raise ValueError('output CSV path must not be empty')
     # Validate position settings before starting any expensive match.
     make_comparison_position(seed_start, start_empty_cells, max_score_gap, max_tries)
-    a = ComparisonProfile(f'd{depth_a}_b{branch_a}', depth_a, branch_a)
-    b = ComparisonProfile(f'd{depth_b}_b{branch_b}', depth_b, branch_b)
+    def label(depth, branch, variant, extensions):
+        name = f'd{depth}_b{branch}'
+        if variant != 'full':
+            name += '_' + variant
+        if extensions:
+            name += f'_ext{extensions}'
+        return name
+
+    a = ComparisonProfile(label(depth_a, branch_a, variant_a, extensions_a),
+                          depth_a, branch_a, variant_a, extensions_a)
+    b = ComparisonProfile(label(depth_b, branch_b, variant_b, extensions_b),
+                          depth_b, branch_b, variant_b, extensions_b)
     results = []
     for index in range(pairs):
         seed = seed_start + index
@@ -1038,7 +1065,24 @@ def main() -> None:
     p.add_argument("--branch-b", type=int, default=12)
     p.add_argument("--max-cells", type=int, default=14)
     p.add_argument("--endgame-cells", type=int, default=7)
+    p.add_argument("--variant-a", choices=ABLATION_VARIANTS, default="full")
+    p.add_argument("--variant-b", choices=ABLATION_VARIANTS, default="full")
+    p.add_argument("--extensions-a", type=int, choices=(0, 1, 2), default=0)
+    p.add_argument("--extensions-b", type=int, choices=(0, 1, 2), default=0)
     p.add_argument("--output", default="experiments/results/compare.csv")
+
+    p = commands.add_parser("ablate", help="Compare full evaluator against one disabled feature")
+    p.add_argument("--variant", choices=(*ABLATION_VARIANTS[1:], "all"), required=True)
+    p.add_argument("--pairs", type=int, default=10)
+    p.add_argument("--seconds", type=float, default=10.0)
+    p.add_argument("--seed-start", type=int, default=2026)
+    p.add_argument("--start-empty-cells", type=int, default=31)
+    p.add_argument("--max-score-gap", type=int, default=2)
+    p.add_argument("--max-tries", type=int, default=200)
+    p.add_argument("--depth", type=int, default=6)
+    p.add_argument("--branch", type=int, default=12)
+    p.add_argument("--extensions", type=int, choices=(0, 1, 2), default=1)
+    p.add_argument("--output", default="experiments/results/ablation.csv")
 
     p = commands.add_parser("summary", help="Summarize measured experiment CSVs")
     p.add_argument("--result-dir", default="experiments/results")
@@ -1074,7 +1118,33 @@ def main() -> None:
                          depth_a=args.depth_a, depth_b=args.depth_b,
                          branch_a=args.branch_a, branch_b=args.branch_b,
                          max_cells=args.max_cells, endgame_cells=args.endgame_cells,
+                         variant_a=args.variant_a, variant_b=args.variant_b,
+                         extensions_a=args.extensions_a, extensions_b=args.extensions_b,
                          output=args.output)
+    elif args.command == "ablate":
+        variants = ABLATION_VARIANTS[1:] if args.variant == "all" else (args.variant,)
+        for variant in variants:
+            out = Path(args.output)
+            if args.variant == "all":
+                out = out.with_name(out.stem + "_" + variant + out.suffix)
+            print(f"\nAblation: full vs {variant}", flush=True)
+            rows = compare_profiles(
+                pairs=args.pairs, seconds=args.seconds, seed_start=args.seed_start,
+                start_empty_cells=args.start_empty_cells,
+                max_score_gap=args.max_score_gap, max_tries=args.max_tries,
+                depth_a=args.depth, depth_b=args.depth,
+                branch_a=args.branch, branch_b=args.branch,
+                variant_a='full', variant_b=variant,
+                extensions_a=args.extensions, extensions_b=args.extensions,
+                output=str(out),
+            )
+            full_wins = sum(r['winner_profile'] in (f'd{args.depth}_b{args.branch}',
+                            f'd{args.depth}_b{args.branch}_ext{args.extensions}') for r in rows)
+            reduced_wins = sum(r['winner_profile'] not in (
+                f'd{args.depth}_b{args.branch}', f'd{args.depth}_b{args.branch}_ext{args.extensions}', 'draw')
+                for r in rows)
+            print(f'Ablation summary {variant}: full={full_wins}, reduced={reduced_wins}, '
+                  f'draws={len(rows)-full_wins-reduced_wins}, total={len(rows)}')
     elif args.command == "summary":
         summarize(args.result_dir)
     elif args.command == "plots":

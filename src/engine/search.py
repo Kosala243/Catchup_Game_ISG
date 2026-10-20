@@ -1,3 +1,10 @@
+"""Time-limited selective alpha-beta search with tactical exact endgames.
+
+Every ply is one entire Catchup turn. Per-player caches are optional and
+bounded; they are keyed by exact board occupancy, rule state, perspective,
+search settings and the endgame full-width threshold. Search never changes
+its caller's GameState after returning (including timeout paths).
+"""
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -7,14 +14,29 @@ from typing import Optional, Tuple
 
 from ..board.board import BLACK, WHITE
 from ..game.state import GameState, Turn
-from .evaluation import evaluate
+from .evaluation import evaluate, active_evaluation_variant
 from .move_generation import SearchTimeout, check_deadline, ranked_candidate_turns
 from .move_ordering import MoveOrdering
 from .transposition_table import (
     Bound, TTEntry, TranspositionTable, occupancy_bits, position_key, turn_mask,
 )
 
+# ContextVar is worker/thread safe. The public choose_move(state, budget) API
+# stays unchanged; player.py can nevertheless provide its own cache per AI.
 _SEARCH_CACHE: ContextVar[tuple | None] = ContextVar('catchup_search_cache', default=None)
+_SEARCH_PROGRESS: ContextVar[object | None] = ContextVar('catchup_search_progress', default=None)
+
+
+@contextmanager
+def capture_search_progress(callback):
+    """Send immutable completed-depth reports to a worker-safe callback."""
+    token = _SEARCH_PROGRESS.set(callback)
+    try:
+        yield
+    finally:
+        _SEARCH_PROGRESS.reset(token)
+
+
 
 @contextmanager
 def shared_search_cache(table: TranspositionTable, ordering: MoveOrdering):
@@ -23,6 +45,7 @@ def shared_search_cache(table: TranspositionTable, ordering: MoveOrdering):
         yield
     finally:
         _SEARCH_CACHE.reset(token)
+
 
 @dataclass
 class SearchStats:
@@ -37,6 +60,8 @@ class SearchStats:
     tt_stores: int = 0
     generated_moves: int = 0
     endgame_full_width_nodes: int = 0
+    tactical_extensions: int = 0
+
 
 def alpha_beta(
     state: GameState, depth: int, alpha: float, beta: float, colour: str,
@@ -47,8 +72,15 @@ def alpha_beta(
     ordering: Optional[MoveOrdering] = None,
     use_tt: bool = True, use_ordering: bool = True,
     endgame_full_width_cells: int = 7,
+    tactical_extensions: int = 0,
+    tactical_growth: int = 3,
 ) -> Tuple[float, Optional[Turn]]:
-    
+    """Return (evaluation, best legal complete turn) from colour's viewpoint.
+
+    Selective except for explicitly requested full width or small endgames.
+    Endgame full-width does not mean unlimited depth: it is exact only
+    within the depth horizon or once the board has become terminal.
+    """
     if depth < 0:
         raise ValueError('search depth cannot be negative')
     if colour not in (WHITE, BLACK):
@@ -59,6 +91,10 @@ def alpha_beta(
         raise ValueError('max_branch and max_cells must be positive')
     if isinstance(endgame_full_width_cells, bool) or not isinstance(endgame_full_width_cells, int) or not (0 <= endgame_full_width_cells <= 10):
         raise ValueError('endgame_full_width_cells must be an integer in 0..10')
+    if isinstance(tactical_extensions, bool) or not isinstance(tactical_extensions, int) or not 0 <= tactical_extensions <= 2:
+        raise ValueError('tactical_extensions must be 0, 1, or 2')
+    if isinstance(tactical_growth, bool) or not isinstance(tactical_growth, int) or tactical_growth < 1:
+        raise ValueError('tactical_growth must be a positive integer')
     if stats is None:
         stats = SearchStats()
     if table is None and use_tt:
@@ -68,7 +104,7 @@ def alpha_beta(
 
     root_w, root_b = occupancy_bits(state)
 
-    def visit(remaining: int, a: float, b: float, w: int, k: int):
+    def visit(remaining: int, a: float, b: float, w: int, k: int, extensions_left: int):
         check_deadline(deadline)
         stats.nodes += 1
         if remaining == 0 or state.is_game_over():
@@ -82,6 +118,8 @@ def alpha_beta(
         key = position_key(
             state, colour, max_branch, max_cells, locally_exhaustive,
             masks=(w, k), endgame_full_width_cells=endgame_full_width_cells,
+            extensions_left=extensions_left, extension_growth=tactical_growth,
+            evaluation_id=active_evaluation_variant(),
         )
         original_a, original_b = a, b
         entry = table.get(key) if use_tt and table is not None else None
@@ -119,12 +157,23 @@ def alpha_beta(
         for turn in choices:
             check_deadline(deadline)
             mask = turn_mask(turn)
+            score_before = state.scores[mover]
             state.apply_turn(turn)
             try:
+                # A bounded selective extension at the nominal search horizon.
+                # It is NOT an unlimited extension of every tactical subtree.
+                extend = (remaining == 1 and extensions_left > 0
+                          and not state.is_game_over()
+                          and (state.scores[mover] - score_before >= tactical_growth
+                               or state.stones_allowed_this_turn() == 3))
+                if extend:
+                    stats.tactical_extensions += 1
+                child_depth = remaining - 1 + (1 if extend else 0)
+                child_extensions = extensions_left - (1 if extend else 0)
                 if mover == WHITE:
-                    value, _ = visit(remaining - 1, a, b, w | mask, k)
+                    value, _ = visit(child_depth, a, b, w | mask, k, child_extensions)
                 else:
-                    value, _ = visit(remaining - 1, a, b, w, k | mask)
+                    value, _ = visit(child_depth, a, b, w, k | mask, child_extensions)
             finally:
                 state.undo()
             stats.searched_moves += 1
@@ -153,7 +202,7 @@ def alpha_beta(
                 stats.tt_stores += 1
         return best_value, list(best_turn) if best_turn is not None else None
 
-    return visit(depth, alpha, beta, root_w, root_b)
+    return visit(depth, alpha, beta, root_w, root_b, tactical_extensions)
 
 
 def iterative_deepening(
@@ -164,8 +213,15 @@ def iterative_deepening(
     table: Optional[TranspositionTable] = None,
     ordering: Optional[MoveOrdering] = None,
     endgame_full_width_cells: int = 7,
+    tactical_extensions: int = 1,
+    tactical_growth: int = 3,
 ) -> Turn:
+    """Iterate to at most max_depth or until the shared move deadline.
 
+    Retains the deepest FULLY finished iteration, never an interrupted turn.
+    Shared caches can persist between AIPlayer calls; default direct callers
+    get fresh per-search caches.
+    """
     if state.is_game_over():
         raise ValueError('cannot search a completed game')
     if colour != state.to_move:
@@ -182,14 +238,23 @@ def iterative_deepening(
         table = TranspositionTable()
     if ordering is None and use_ordering:
         ordering = MoveOrdering()
+    progress_callback = _SEARCH_PROGRESS.get()
+    from ..game.notation import format_turn
+    last_counts = {name: 0 for name in (
+        'nodes', 'leaves', 'cutoffs', 'tt_hits', 'tt_stores',
+        'generated_moves', 'tactical_extensions', 'endgame_full_width_nodes',
+    )}
     for depth in range(1, max_depth + 1):
+        iteration_started = time.monotonic()
         try:
-            _, candidate = alpha_beta(
+            value, candidate = alpha_beta(
                 state, depth, -math.inf, math.inf, colour,
                 max_branch=max_branch, max_cells=max_cells, full_width=full_width,
                 deadline=deadline, stats=stats, table=table, ordering=ordering,
                 use_tt=use_tt, use_ordering=use_ordering,
                 endgame_full_width_cells=endgame_full_width_cells,
+                tactical_extensions=tactical_extensions,
+                tactical_growth=tactical_growth,
             )
         except SearchTimeout:
             stats.timed_out = True
@@ -197,10 +262,30 @@ def iterative_deepening(
         if candidate is not None:
             best = candidate
             stats.completed_depth = depth
-        # Avoid launching another iteration when almost no time remains
+            if progress_callback is not None:
+                total_counts = {name: getattr(stats, name) for name in last_counts}
+                iteration_counts = {name: total_counts[name] - last_counts[name]
+                                    for name in last_counts}
+                last_counts = total_counts
+                try:
+                    progress_callback({
+                        'kind': 'depth', 'depth': depth, 'best_turn': format_turn(best),
+                        'evaluation': float(value),
+                        'elapsed_seconds': round(time.monotonic() - iteration_started, 6),
+                        'tt_size': len(table) if table is not None else 0,
+                        'total': total_counts, 'iteration': iteration_counts,
+                        'use_tt': use_tt, 'use_ordering': use_ordering,
+                        'extension_limit': tactical_extensions,
+                        'evaluation_variant': active_evaluation_variant(),
+                    })
+                except Exception:
+                    pass  # Diagnostics must not fail an otherwise legal search.
+        # Avoid launching another substantial iteration when almost no time
+        # remains. The deadline still protects an unpredictable search cost.
         if time.monotonic() >= deadline:
             break
     return list(best)
+
 
 def choose_move(state: GameState, time_budget_seconds: float) -> Turn:
     """Stable two-argument API used by GUI, tournament and existing tests."""
